@@ -1,0 +1,21 @@
+# 標準セット
+.env*
+!.env.example
+config.local.*
+*.local.*
+secrets/
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+__pycache__/
+.DS_Store
+
+# 本プロジェクト固有：実値を含むローカル設定・禁止ワード・実行ログ・応募前控え
+config/local/
+banned_words.txt
+logs/
+output/
+*.local.yaml
+*.local.json
+*.local.csv
