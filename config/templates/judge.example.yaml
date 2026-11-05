@@ -1,0 +1,88 @@
+# 判定設定のテンプレート（伏せ字）。
+# 実値は config/local/judge.local.yaml（gitignore 対象）に置く。
+# 判定に効く値は全てここに置き、コードへ直書きしない。
+normalize:
+  tracking_params:
+    - "utm_source"
+    - "utm_medium"
+    - "utm_campaign"
+    - "utm_term"
+    - "utm_content"
+    - "ref"
+    - "fbclid"
+    - "gclid"
+duty:
+  target_sections:
+    - "業務内容"
+    - "担当業務"
+  upstream_keywords:
+    - "<上流主務を表す文脈付き表現>"
+  impl_keywords:
+    - "<実装等の主務を表す表現>"
+  title_assist_keywords:
+    - "<職種名の補助キーワード（単独では判定を決定しない）>"
+  primary_markers:
+    - "主担当"
+    - "メイン業務"
+  mixed_handling: "check"
+location:
+  target_sections:
+    - "勤務地"
+    - "勤務先"
+    - "就業場所"
+    - "アクセス"
+  whitelist_file: "config/local/location_whitelist.local.yaml"
+remote:
+  # 規則は先頭から順に評価される。具体的な表記（同義変換を含む）を
+  # 一般的な表記より前に置くこと。同義は pattern の選択肢で吸収する。
+  rules:
+    - { pattern: "フルリモート|出社なし", division: "フルリモート（出社なし）" }
+    - { pattern: "週3日リモート|週2日出社", division: "出社週2〜3日" }
+    - { pattern: "月1回出社|週1日以下", division: "出社週1日以下" }
+    - { pattern: "フル出社|出社必須", division: "出社必須（フル出社）" }
+english:
+  target_sections:
+    - "応募資格"
+    - "必須スキル"
+    - "求める人物像"
+    - "業務内容"
+  mandatory_sections:
+    - "必須スキル"
+    - "必須要件"
+  required_phrases:
+    - "<英語必須の明記表現>"
+  welcome_phrases:
+    - "<英語歓迎の表現>"
+  level_phrases:
+    - "<英語レベルの表現>"
+hard:
+  non_regular_keywords:
+    - "<正社員でない雇用形態を表す表現>"
+  out_of_domain_keywords:
+    - "<領域外を表す表現>"
+  business_form_keywords:
+    - "<SIer・コンサル寄りの事業形態を表す表現>"
+fitness:
+  salary_check_threshold_jpy: 0
+  high_threshold: 70
+  domain_match_points: 30
+  salary_points: 20
+  condition_points: 10
+  location_points: 10
+presentation:
+  weekly_limit: 20
+validity:
+  listing_valid_days: 14
+collection:
+  request_interval_sec: 5
+  per_source_max_items: 50
+  timeout_sec: 30
+guard:
+  max_close_ratio: 0.5
+  max_total_change_ratio: 1.0
+openwork:
+  weekly_once_per_company: true
+auto_apply:
+  enabled: false
+  weekly_limit: 3
+  result_unknown_hold_runs: 2
