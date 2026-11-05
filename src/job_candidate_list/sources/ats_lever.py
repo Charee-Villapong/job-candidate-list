@@ -2,9 +2,13 @@
 
 補正: 会社名はローカル設定の対応表（無ければボード識別子）から解決し、
 本文には本文プレーン＋項目別リスト（業務内容／必須要件 等の見出し付き）
-＋追加情報（会社概要）までを含め、見出しは判定セクション名としても渡す。
+を含め、見出しは判定セクション名としても渡す。
 年収は salaryRange（JPY の場合）または本文中の日本円表記から抽出し、
 リモート原文には本文全体を渡す。
+
+追加情報（additionalPlain）は会社紹介・福利厚生・応募方法が混在する
+定型ブロックで、会社概要専用セクションではないため判定には渡さない
+（福利厚生中の「介護休暇」等の語が領域判定に混入するのを防ぐ）。
 """
 
 from __future__ import annotations
@@ -57,9 +61,7 @@ class LeverAdapter:
                     list_texts.append(content)
                     if label:
                         extra_sections[label] = content
-                overview = str(job.get("additionalPlain", "") or "")
-                # 追加情報（会社概要）は業務内容セクションには混ぜず、
-                # company_overview_raw としてのみ渡す。
+                # 追加情報（additionalPlain）は判定に渡さない（docstring 参照）。
                 full_text = "\n".join(part for part in [body, *list_texts] if part)
                 salary_min = salary_max = salary_raw = None
                 salary_range = job.get("salaryRange") or {}
@@ -95,7 +97,6 @@ class LeverAdapter:
                         salary_max_jpy=salary_max,
                         salary_raw=salary_raw,
                         remote_raw=remote_raw or None,
-                        company_overview_raw=overview or None,
                         extra_sections=extra_sections,
                     )
                 )
