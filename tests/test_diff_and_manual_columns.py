@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import pytest
-
 from conftest import (
     build_candidate_record,
     build_raw_posting,
@@ -17,11 +16,28 @@ from conftest import (
 )
 
 EXPECTED_AUTO_COLUMNS = [
-    "候補ID", "会社名", "ポジション名", "雇用形態", "想定年収レンジ", "勤務地",
-    "勤務地判定結果", "リモート頻度", "適合度", "適合理由", "要確認理由",
-    "情報源種別", "情報源URL", "OpenWork点数", "OpenWork URL",
-    "OpenWork点数取得日", "提示区分", "掲載確認日", "状態", "応募状態",
-    "応募日時", "応募結果",
+    "候補ID",
+    "会社名",
+    "ポジション名",
+    "雇用形態",
+    "想定年収レンジ",
+    "勤務地",
+    "勤務地判定結果",
+    "リモート頻度",
+    "適合度",
+    "適合理由",
+    "要確認理由",
+    "情報源種別",
+    "情報源URL",
+    "OpenWork点数",
+    "OpenWork URL",
+    "OpenWork点数取得日",
+    "提示区分",
+    "掲載確認日",
+    "状態",
+    "応募状態",
+    "応募日時",
+    "応募結果",
 ]
 EXPECTED_MANUAL_COLUMNS = ["本人の判断", "本人のメモ"]
 
@@ -49,10 +65,12 @@ def test_auto_and_manual_columns_are_disjoint():
 
 def test_diff_detects_added_updated_closed():
     """差分計算: 新規／更新あり／掲載終了が正しく検出される（④）。"""
-    old = [_record("cand_0000000000000001"), _record("cand_0000000000000002"),
-           _record("cand_0000000000000003")]
-    new = [_record("cand_0000000000000001"),
-           _record("cand_0000000000000004")]
+    old = [
+        _record("cand_0000000000000001"),
+        _record("cand_0000000000000002"),
+        _record("cand_0000000000000003"),
+    ]
+    new = [_record("cand_0000000000000001"), _record("cand_0000000000000004")]
     diff = _diff(old, new)
     added = set(getattr(diff, "added"))
     closed = set(getattr(diff, "closed"))
@@ -139,9 +157,9 @@ def test_upsert_preserves_manual_column_values():
         assert tab_name == "候補リスト"
         for row in rows:
             # 行は自動列の分だけ。人手列ぶんのセルは含まれない
-            assert len(row) == len(auto), (
-                f"書込行の列数が自動列数と一致しない: {len(row)} != {len(auto)}"
-            )
+            assert len(row) == len(
+                auto
+            ), f"書込行の列数が自動列数と一致しない: {len(row)} != {len(auto)}"
     assert not set(auto) & set(manual)
 
 

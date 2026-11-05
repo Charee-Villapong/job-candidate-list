@@ -152,7 +152,10 @@ def judge_config_dict() -> dict:
         },
         "remote": {
             "rules": [
-                {"pattern": "フルリモート|出社なし", "division": "フルリモート（出社なし）"},
+                {
+                    "pattern": "フルリモート|出社なし",
+                    "division": "フルリモート（出社なし）",
+                },
                 {"pattern": "週3日リモート|週2日出社", "division": "出社週2〜3日"},
                 {"pattern": "週2〜3日", "division": "出社週2〜3日"},
                 {"pattern": "月1回出社|週1日以下", "division": "出社週1日以下"},
@@ -308,9 +311,18 @@ class FakeSourceAdapter:
 # レジストリ行フィクスチャ（§8.1 の列構成。値は全て架空）
 # ---------------------------------------------------------------------------
 REGISTRY_HEADER = [
-    "情報源名", "URLパターン", "ログイン要否", "資格情報の有無", "実測結果",
-    "自動取得可否", "リスク評価結果と判定根拠", "費用条件確認", "自動応募可否",
-    "送信確定方法", "対象化の最終判断", "備考",
+    "情報源名",
+    "URLパターン",
+    "ログイン要否",
+    "資格情報の有無",
+    "実測結果",
+    "自動取得可否",
+    "リスク評価結果と判定根拠",
+    "費用条件確認",
+    "自動応募可否",
+    "送信確定方法",
+    "対象化の最終判断",
+    "備考",
 ]
 
 _REGISTRY_MEASURED_OK = (
@@ -411,8 +423,15 @@ def build_location_whitelist(data: dict):
     return models.LocationWhitelist.from_dict(data)
 
 
-def run_fake_collection(profile_data, judge_data, local_data=None, *,
-                        existing=(), postings=(), dry_run=False):
+def run_fake_collection(
+    profile_data,
+    judge_data,
+    local_data=None,
+    *,
+    existing=(),
+    postings=(),
+    dry_run=False,
+):
     """pipeline.run_collection をフェイク境界で 1 回実行する。
 
     戻り値は (RunSummary, FakeSheetsGateway)。情報源は
@@ -424,7 +443,5 @@ def run_fake_collection(profile_data, judge_data, local_data=None, *,
     )
     adapter = FakeSourceAdapter(postings)
     run = impl("job_candidate_list.pipeline.run_collection")
-    summary = run(
-        cfg, gateway, {"サンプル情報源A": adapter}, None, dry_run
-    )
+    summary = run(cfg, gateway, {"サンプル情報源A": adapter}, None, dry_run)
     return summary, gateway

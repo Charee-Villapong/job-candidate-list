@@ -8,7 +8,6 @@ from __future__ import annotations
 import re
 
 import pytest
-
 from conftest import (
     ARCHITECTURE_MD,
     REPO_ROOT,
@@ -114,9 +113,7 @@ def test_validate_config_returns_empty_for_valid_config(
     設定オブジェクトは AppConfig.from_dicts（追補 A2.2）で組み立てる。
     """
     validate_config = impl("job_candidate_list.config.validate_config")
-    cfg = build_app_config(
-        profile_config_dict, judge_config_dict, local_config_dict
-    )
+    cfg = build_app_config(profile_config_dict, judge_config_dict, local_config_dict)
     assert validate_config(cfg) == []
 
 
@@ -193,16 +190,22 @@ def test_changing_salary_threshold_changes_fitness_without_code_change(
 
     base = dict(judge_config_dict["fitness"], salary_check_threshold_jpy=500_000)
     result_ok = assign(
-        posting, duty, location, remote, english,
+        posting,
+        duty,
+        location,
+        remote,
+        english,
         fitness_config.from_dict(base),
     )
     assert enum_value(result_ok.fitness) in ("高", "中")
 
-    raised = dict(
-        judge_config_dict["fitness"], salary_check_threshold_jpy=4_000_000
-    )
+    raised = dict(judge_config_dict["fitness"], salary_check_threshold_jpy=4_000_000)
     result_check = assign(
-        posting, duty, location, remote, english,
+        posting,
+        duty,
+        location,
+        remote,
+        english,
         fitness_config.from_dict(raised),
     )
     assert enum_value(result_check.fitness) == "要確認"
@@ -292,8 +295,13 @@ def test_rule_ids_are_distinct_per_requirement_category():
     assert {"JOB-IMPL-HARD", "JOB-UNKNOWN", "JOB-MIXED"} <= duty
     assert len({"JOB-IMPL-HARD", "JOB-UNKNOWN", "JOB-MIXED"}) == 3
     loc = ids["5.2"]
-    assert {"LOC-OK", "LOC-OUT", "LOC-UNKNOWN", "LOC-FULLREMOTE-EXEMPT",
-            "REMOTE-UNKNOWN"} <= loc
+    assert {
+        "LOC-OK",
+        "LOC-OUT",
+        "LOC-UNKNOWN",
+        "LOC-FULLREMOTE-EXEMPT",
+        "REMOTE-UNKNOWN",
+    } <= loc
     eng = ids["5.3"]
     assert {"ENG-HARD", "ENG-UNKNOWN"} <= eng
     # 区分をまたいで同一IDが別の意味に再利用されていないこと
@@ -312,8 +320,8 @@ def test_design_only_is_separate_id_from_impl_hard():
 # 機微情報が設定・リストに含まれないこと（パターン検査観点）
 # ---------------------------------------------------------------------------
 SENSITIVE_PATTERNS = [
-    r"[\w.+-]+@[\w-]+\.[\w.]+",          # メールアドレス
-    r"\b\d{2,4}-\d{2,4}-\d{4}\b",        # 電話番号らしき並び
+    r"[\w.+-]+@[\w-]+\.[\w.]+",  # メールアドレス
+    r"\b\d{2,4}-\d{2,4}-\d{4}\b",  # 電話番号らしき並び
     r"(password|passwd|api[_-]?key|secret|token)\s*[:=]\s*\S+",  # 認証情報
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
 ]
@@ -347,7 +355,8 @@ def test_config_templates_contain_no_real_values():
         "（設定テンプレートの実ファイルがまだ作成されていない）"
     )
     files = [
-        p for p in templates.rglob("*")
+        p
+        for p in templates.rglob("*")
         if p.is_file() and p.suffix in (".yaml", ".yml", ".md", ".txt")
     ]
     assert files, "未実装: config/templates/ にテンプレートファイルが無い"
@@ -355,9 +364,8 @@ def test_config_templates_contain_no_real_values():
         text = path.read_text(encoding="utf-8")
         for pattern in SENSITIVE_PATTERNS:
             hits = [
-                h for h in re.findall(pattern, text, flags=re.IGNORECASE)
+                h
+                for h in re.findall(pattern, text, flags=re.IGNORECASE)
                 if "example.invalid" not in str(h)
             ]
-            assert not hits, (
-                f"{path} に実値らしきパターン {pattern} のヒット: {hits}"
-            )
+            assert not hits, f"{path} に実値らしきパターン {pattern} のヒット: {hits}"

@@ -7,13 +7,21 @@
 from __future__ import annotations
 
 import pytest
-
 from conftest import impl
 
 HEADER = [
-    "情報源名", "URLパターン", "ログイン要否", "資格情報の有無", "実測結果",
-    "自動取得可否", "リスク評価結果と判定根拠", "費用条件確認", "自動応募可否",
-    "送信確定方法", "対象化の最終判断", "備考",
+    "情報源名",
+    "URLパターン",
+    "ログイン要否",
+    "資格情報の有無",
+    "実測結果",
+    "自動取得可否",
+    "リスク評価結果と判定根拠",
+    "費用条件確認",
+    "自動応募可否",
+    "送信確定方法",
+    "対象化の最終判断",
+    "備考",
 ]
 
 MEASURED_OK = "結果=対象外（ログイン不要）; 取得方法=公式公開API; 確認日=2026-11-05"
@@ -24,8 +32,18 @@ STAGE1_SEND = "対象外（自動応募は第3段階で確定）"
 
 def row(name="サンプル情報源A", url="https://example.invalid/board-a/*", **over):
     base = [
-        name, url, "不要", "不要（ログイン不要のため）", MEASURED_OK, "可",
-        RISK_LOW, PAID_OK, "不可", STAGE1_SEND, "対象", "",
+        name,
+        url,
+        "不要",
+        "不要（ログイン不要のため）",
+        MEASURED_OK,
+        "可",
+        RISK_LOW,
+        PAID_OK,
+        "不可",
+        STAGE1_SEND,
+        "対象",
+        "",
     ]
     idx = {h: i for i, h in enumerate(HEADER)}
     for k, v in over.items():
@@ -59,10 +77,10 @@ def test_parse_registry_header_mismatch_is_schema_error():
 @pytest.mark.parametrize(
     "override",
     [
-        {"ログイン要否": "要"},                    # 閉じた値の範囲外（表記ゆれ）
-        {"自動取得可否": ""},                      # 空欄
-        {"費用条件確認": "無料"},                  # 範囲外
-        {"対象化の最終判断": "対象にする"},        # 人手列も閉じた値で検証する
+        {"ログイン要否": "要"},  # 閉じた値の範囲外（表記ゆれ）
+        {"自動取得可否": ""},  # 空欄
+        {"費用条件確認": "無料"},  # 範囲外
+        {"対象化の最終判断": "対象にする"},  # 人手列も閉じた値で検証する
         {"送信確定方法": "未確定"},
     ],
 )
@@ -71,8 +89,12 @@ def test_out_of_range_or_blank_value_blocks_only_that_source(override):
     parse = impl("job_candidate_list.registry.parse_registry")
     validate = impl("job_candidate_list.registry.validate_registry")
     is_collectable = impl("job_candidate_list.registry.is_collectable")
-    reg = parse(rows(row(**override), row(name="サンプル情報源B",
-                                          url="https://example.invalid/board-b/*")))
+    reg = parse(
+        rows(
+            row(**override),
+            row(name="サンプル情報源B", url="https://example.invalid/board-b/*"),
+        )
+    )
     issues = validate(reg)
     blocked = [i for i in issues if str(getattr(i, "kind", "")) == "source_blocked"]
     assert blocked, "範囲外の値に対する source_blocked が検出されていない"
@@ -110,8 +132,7 @@ def test_auto_apply_allowed_with_confirmed_send_method_is_not_blocked(send_metho
     parse = impl("job_candidate_list.registry.parse_registry")
     validate = impl("job_candidate_list.registry.validate_registry")
     reg = parse(rows(row(**{"自動応募可否": "可", "送信確定方法": send_method})))
-    issues = [i for i in validate(reg)
-              if "送信確定" in str(getattr(i, "detail", ""))]
+    issues = [i for i in validate(reg) if "送信確定" in str(getattr(i, "detail", ""))]
     assert not issues
 
 
@@ -119,12 +140,18 @@ def test_login_required_without_vault_or_measurement_is_blocked():
     """ログイン必須で Vault保存済みでない／実測成功でない行は対象外（§8.4-6）。"""
     parse = impl("job_candidate_list.registry.parse_registry")
     is_collectable = impl("job_candidate_list.registry.is_collectable")
-    reg = parse(rows(row(**{
-        "ログイン要否": "必須",
-        "資格情報の有無": "未保存",
-        "実測結果": "結果=未実施; 取得方法=Secure Vault経由; 確認日=2026-11-05",
-        "対象化の最終判断": "対象",
-    })))
+    reg = parse(
+        rows(
+            row(
+                **{
+                    "ログイン要否": "必須",
+                    "資格情報の有無": "未保存",
+                    "実測結果": "結果=未実施; 取得方法=Secure Vault経由; 確認日=2026-11-05",
+                    "対象化の最終判断": "対象",
+                }
+            )
+        )
+    )
     entries = list(getattr(reg, "sources", []) or [])
     assert entries and is_collectable(entries[0]) is False
 
@@ -148,8 +175,16 @@ def test_conditional_fetch_requires_manual_only_decision():
     """条件付き可は最終判断「対象（手動収集のみ）」の場合に限る（§8.4-8）。"""
     parse = impl("job_candidate_list.registry.parse_registry")
     is_collectable = impl("job_candidate_list.registry.is_collectable")
-    reg = parse(rows(row(**{"自動取得可否": "条件付き可（手動・低頻度の範囲のみ）",
-                            "対象化の最終判断": "対象"})))
+    reg = parse(
+        rows(
+            row(
+                **{
+                    "自動取得可否": "条件付き可（手動・低頻度の範囲のみ）",
+                    "対象化の最終判断": "対象",
+                }
+            )
+        )
+    )
     entries = list(getattr(reg, "sources", []) or [])
     assert entries and is_collectable(entries[0]) is False
 
@@ -158,15 +193,24 @@ def test_openwork_row_allows_special_send_method_value():
     """OpenWork行の送信確定方法「対象外（企業評価の補助情報源）」は許容値（§8.2）。"""
     parse = impl("job_candidate_list.registry.parse_registry")
     validate = impl("job_candidate_list.registry.validate_registry")
-    reg = parse(rows(row(name="OpenWork",
-                         url="https://example.invalid/openwork/*",
-                         **{"資格情報の有無": "未保存",
-                            "自動取得可否": "不可",
-                            "費用条件確認": "有料条件あり",
-                            "送信確定方法": "対象外（企業評価の補助情報源）",
-                            "対象化の最終判断": "対象外"})))
-    schema_issues = [i for i in validate(reg)
-                     if str(getattr(i, "kind", "")) == "schema"]
+    reg = parse(
+        rows(
+            row(
+                name="OpenWork",
+                url="https://example.invalid/openwork/*",
+                **{
+                    "資格情報の有無": "未保存",
+                    "自動取得可否": "不可",
+                    "費用条件確認": "有料条件あり",
+                    "送信確定方法": "対象外（企業評価の補助情報源）",
+                    "対象化の最終判断": "対象外",
+                },
+            )
+        )
+    )
+    schema_issues = [
+        i for i in validate(reg) if str(getattr(i, "kind", "")) == "schema"
+    ]
     assert not schema_issues
 
 
@@ -174,11 +218,19 @@ def test_openwork_gate_false_when_row_not_collectable():
     """OpenWork行が対象でなければゲートは False（点数付与のみ停止・収集は継続）。"""
     parse = impl("job_candidate_list.registry.parse_registry")
     gate = impl("job_candidate_list.registry.openwork_gate")
-    reg = parse(rows(row(name="OpenWork",
-                         url="https://example.invalid/openwork/*",
-                         **{"自動取得可否": "不可",
-                            "送信確定方法": "対象外（企業評価の補助情報源）",
-                            "対象化の最終判断": "対象外"})))
+    reg = parse(
+        rows(
+            row(
+                name="OpenWork",
+                url="https://example.invalid/openwork/*",
+                **{
+                    "自動取得可否": "不可",
+                    "送信確定方法": "対象外（企業評価の補助情報源）",
+                    "対象化の最終判断": "対象外",
+                },
+            )
+        )
+    )
     assert gate(reg) is False
 
 
@@ -198,9 +250,9 @@ def test_openwork_gate_false_when_row_missing():
         ("サンプル青葉株式会社", "サンプル青葉"),
         ("有限会社サンプル青葉", "サンプル青葉"),
         ("合同会社サンプル青葉", "サンプル青葉"),
-        ("サンプルＡＢＣ", "サンプルABC"),     # 全角→半角
-        ("サンプル 青葉", "サンプル青葉"),      # 空白除去
-        ("サンプル　青葉", "サンプル青葉"),    # 全角空白除去
+        ("サンプルＡＢＣ", "サンプルABC"),  # 全角→半角
+        ("サンプル 青葉", "サンプル青葉"),  # 空白除去
+        ("サンプル　青葉", "サンプル青葉"),  # 全角空白除去
     ],
 )
 def test_normalize_company_unifies_legal_form_and_width(a, b):
@@ -211,11 +263,15 @@ def test_normalize_company_unifies_legal_form_and_width(a, b):
 @pytest.mark.parametrize(
     "raw,expected_part",
     [
-        ("http://example.invalid/jobs/1/?utm_source=x&ref=y#frag",
-         "https://example.invalid/jobs/1"),
+        (
+            "http://example.invalid/jobs/1/?utm_source=x&ref=y#frag",
+            "https://example.invalid/jobs/1",
+        ),
         ("https://example.invalid/jobs/1/", "https://example.invalid/jobs/1"),
-        ("https://example.invalid/jobs/1?utm_medium=m",
-         "https://example.invalid/jobs/1"),
+        (
+            "https://example.invalid/jobs/1?utm_medium=m",
+            "https://example.invalid/jobs/1",
+        ),
     ],
 )
 def test_normalize_url_rules(raw, expected_part, judge_config_dict):
@@ -259,8 +315,11 @@ def test_duplicate_rows_are_zero_for_same_normalized_posting():
     cid = impl("job_candidate_list.normalize.candidate_id")
     norm_c = impl("job_candidate_list.normalize.normalize_company")
     norm_u = impl("job_candidate_list.normalize.normalize_url")
-    a = cid(norm_c("株式会社サンプル青葉"), "PM",
-            norm_u("https://example.invalid/j/1/?utm_source=x"))
+    a = cid(
+        norm_c("株式会社サンプル青葉"),
+        "PM",
+        norm_u("https://example.invalid/j/1/?utm_source=x"),
+    )
     b = cid(norm_c("サンプル青葉"), "PM", norm_u("https://example.invalid/j/1"))
     assert a == b
 
@@ -269,8 +328,16 @@ def test_duplicate_rows_are_zero_for_same_normalized_posting():
 # 候補レコードの必須項目（§10.1 充足条件）
 # ---------------------------------------------------------------------------
 REQUIRED_RECORD_FIELDS = [
-    "candidate_id", "company", "position", "location_text", "remote_division",
-    "source_url", "confirmed_on", "fitness", "fit_reasons", "check_reasons",
+    "candidate_id",
+    "company",
+    "position",
+    "location_text",
+    "remote_division",
+    "source_url",
+    "confirmed_on",
+    "fitness",
+    "fit_reasons",
+    "check_reasons",
 ]
 
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
-
 from conftest import (
     FakeOpenworkProvider,
     build_candidate_record,
@@ -46,14 +45,13 @@ def test_collection_is_not_capped_only_presentation_is():
     要確認＝安全側であり、対象条件とは別に明示が必要）。
     """
     split = impl("job_candidate_list.presentation.split_presentation")
-    candidates = [
-        _record(f"cand_{i:016d}", fitness="中") for i in range(25)
-    ]
+    candidates = [_record(f"cand_{i:016d}", fitness="中") for i in range(25)]
     presented, held = split(candidates, 20)
     assert len(presented) == 20
     assert len(held) == 5
-    assert {c.candidate_id for c in presented} | {c.candidate_id for c in held} \
-        == {c.candidate_id for c in candidates}, "控えの欠落がある"
+    assert {c.candidate_id for c in presented} | {c.candidate_id for c in held} == {
+        c.candidate_id for c in candidates
+    }, "控えの欠落がある"
 
 
 def test_held_high_fitness_beats_new_medium_for_last_slot():
@@ -88,13 +86,10 @@ def test_no_double_presentation_across_weeks():
     （追補 A8.2）。提示済みの候補は提示にも控えにも現れない。
     """
     split = impl("job_candidate_list.presentation.split_presentation")
-    already = _record(
-        "cand_0000000000000001", fitness="高", presentation="提示済み"
-    )
+    already = _record("cand_0000000000000001", fitness="高", presentation="提示済み")
     fresh = _record("cand_0000000000000002", fitness="中")
     presented, held = split([already, fresh], 20)
-    all_ids = [c.candidate_id for c in presented] + \
-        [c.candidate_id for c in held]
+    all_ids = [c.candidate_id for c in presented] + [c.candidate_id for c in held]
     assert "cand_0000000000000001" not in all_ids
     assert [c.candidate_id for c in presented] == ["cand_0000000000000002"]
 
@@ -108,10 +103,12 @@ def test_held_candidates_are_included_in_duplicate_check(
     新規追加とはならず重複行が増えないことを pipeline 経由で確認する。
     """
     cid = impl("job_candidate_list.normalize.candidate_id")
-    existing_id = cid("サンプル青葉", "プロダクトマネージャー",
-                      "https://example.invalid/j/1")
-    assert existing_id == cid("サンプル青葉", "プロダクトマネージャー",
-                              "https://example.invalid/j/1")
+    existing_id = cid(
+        "サンプル青葉", "プロダクトマネージャー", "https://example.invalid/j/1"
+    )
+    assert existing_id == cid(
+        "サンプル青葉", "プロダクトマネージャー", "https://example.invalid/j/1"
+    )
     held = _record(
         existing_id,
         company="株式会社サンプル青葉",
@@ -128,9 +125,9 @@ def test_held_candidates_are_included_in_duplicate_check(
         postings=[build_raw_posting()],
         dry_run=False,
     )
-    assert existing_id not in list(summary.added_ids), (
-        "控えの既存候補が新規として二重登録された"
-    )
+    assert existing_id not in list(
+        summary.added_ids
+    ), "控えの既存候補が新規として二重登録された"
     upserted_ids = [r.candidate_id for r in gateway.upserted]
     assert len(upserted_ids) == len(set(upserted_ids)), "重複行が書き込まれた"
     assert set(upserted_ids) <= {existing_id}
@@ -141,7 +138,10 @@ def test_closed_held_candidate_moves_to_closed_not_presented():
     recheck = impl("job_candidate_list.presentation.recheck_held")
     held = _record("cand_0000000000000001")
     decision = recheck(held, None, None)  # latest=None は掲載終了を表す想定
-    assert str(getattr(decision, "value", decision)) in ("closed", "HeldDecision.closed")
+    assert str(getattr(decision, "value", decision)) in (
+        "closed",
+        "HeldDecision.closed",
+    )
 
 
 def _fitness_result(fitness: str):
@@ -177,9 +177,7 @@ def test_recheck_held_requires_three_conditions():
     assert enum_value(decision) == "closed"
 
     # 既に掲載終了の候補 → closed
-    closed = _record(
-        "cand_0000000000000001", fitness="中", status="掲載終了"
-    )
+    closed = _record("cand_0000000000000001", fitness="中", status="掲載終了")
     decision = recheck(closed, latest, _fitness_result("高"))
     assert enum_value(decision) == "closed"
 
@@ -190,9 +188,7 @@ def test_recheck_held_requires_three_conditions():
     assert enum_value(decision) == "to_check"
 
     # 本人の判断が対象外 → keep_held
-    excluded = _record(
-        "cand_0000000000000001", fitness="中", manual_judgment="対象外"
-    )
+    excluded = _record("cand_0000000000000001", fitness="中", manual_judgment="対象外")
     decision = recheck(excluded, latest, _fitness_result("高"))
     assert enum_value(decision) == "keep_held"
 
@@ -207,8 +203,7 @@ def test_openwork_gate_disabled_never_calls_provider():
     candidate = _record("cand_0000000000000001")
     result = attach(candidate, provider, False, _ow_cfg())
     assert provider.calls == [], "ゲート無効なのに provider が呼ばれた"
-    assert result.score is None and result.url is None \
-        and result.fetched_on is None
+    assert result.score is None and result.url is None and result.fetched_on is None
     assert "OW-DISABLED" in list(result.rule_ids)
 
 
@@ -260,8 +255,7 @@ def test_openwork_nomatch_returns_blank_and_keeps_fitness():
     )
     candidate = _ow_candidate()
     result = attach(candidate, provider, True, _ow_cfg())
-    assert result.score is None and result.url is None \
-        and result.fetched_on is None
+    assert result.score is None and result.url is None and result.fetched_on is None
     assert "OW-NOMATCH" in list(result.rule_ids)
     assert enum_value(candidate.fitness) == "中", "適合度が変わっている"
 
@@ -285,9 +279,7 @@ def test_openwork_refetch_failure_keeps_previous_values():
     provider = FakeOpenworkProvider(results={"サンプル青葉": []})
     candidate = _ow_candidate(
         openwork_score=4.2,
-        openwork_url=models.LinkCell(
-            "OpenWork", "https://example.invalid/openwork/1"
-        ),
+        openwork_url=models.LinkCell("OpenWork", "https://example.invalid/openwork/1"),
         openwork_fetched_on=dt.date(2026, 10, 29),
     )
     result = attach(candidate, provider, True, _ow_cfg(), previous=previous)
@@ -348,8 +340,9 @@ def test_url_change_fallback_keeps_candidate_id_and_apply_state(
     key = impl("job_candidate_list.normalize.fallback_match_key")
     cid = impl("job_candidate_list.normalize.candidate_id")
     models = impl("job_candidate_list.models")
-    assert key("サンプル青葉", "プロダクトマネージャー") == \
-        key("サンプル青葉", "プロダクトマネージャー")
+    assert key("サンプル青葉", "プロダクトマネージャー") == key(
+        "サンプル青葉", "プロダクトマネージャー"
+    )
 
     old_url = "https://example.invalid/j/1"
     new_url = "https://example.invalid/j/2"
@@ -374,14 +367,14 @@ def test_url_change_fallback_keeps_candidate_id_and_apply_state(
     )
     assert existing_id not in list(summary.added_ids)
     assert existing_id in list(summary.updated_ids)
-    carried = [r for r in gateway.upserted
-               if r.candidate_id == existing_id]
+    carried = [r for r in gateway.upserted if r.candidate_id == existing_id]
     assert carried, "既存候補がフォールバック突合で引き継がれていない"
     record = carried[0]
     assert record.source_url.url == new_url, "リンク先が新URLに更新されていない"
     assert record.source_url.display_text == "求人ページ"
-    assert enum_value(record.apply_status) == \
-        enum_value(existing.apply_status), "応募状態が引き継がれていない"
+    assert enum_value(record.apply_status) == enum_value(
+        existing.apply_status
+    ), "応募状態が引き継がれていない"
     assert record.manual_judgment == "応募希望", "応募希望マークが引き継がれていない"
 
 
@@ -394,9 +387,7 @@ def test_presentation_limit_change_is_reflected_from_config(judge_config_dict):
     )
     assert changed.weekly_limit == 5
     split = impl("job_candidate_list.presentation.split_presentation")
-    candidates = [
-        _record(f"cand_{i:016d}", fitness="中") for i in range(7)
-    ]
+    candidates = [_record(f"cand_{i:016d}", fitness="中") for i in range(7)]
     presented, held = split(candidates, changed.weekly_limit)
     assert len(presented) == 5
     assert len(held) == 2

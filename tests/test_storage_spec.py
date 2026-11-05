@@ -9,16 +9,27 @@ from __future__ import annotations
 import re
 
 import pytest
-
 from conftest import PLACEMENT_TABLE, REPO_ROOT
 
 REQUIRED_COLUMNS = [
-    "ID", "ファイル名", "種類", "形式", "置き場のパス", "原本の入手元",
-    "原本の形式", "原本保持状況", "サンプルの検証状態", "サイズ（バイト数）",
+    "ID",
+    "ファイル名",
+    "種類",
+    "形式",
+    "置き場のパス",
+    "原本の入手元",
+    "原本の形式",
+    "原本保持状況",
+    "サンプルの検証状態",
+    "サイズ（バイト数）",
 ]
 
 ALLOWED_KINDS = {"検証用求人サンプル", "モックアップ", "その他"}
-ALLOWED_VERIFICATION = {"未検証", "検証済み（期待結果と一致）", "検証済み（不一致あり）"}
+ALLOWED_VERIFICATION = {
+    "未検証",
+    "検証済み（期待結果と一致）",
+    "検証済み（不一致あり）",
+}
 
 
 def _rows() -> list[dict[str, str]]:
@@ -87,13 +98,17 @@ def test_samples_have_no_real_names_or_credentials():
     for path in sorted((REPO_ROOT / "storage-spec" / "samples").glob("*.md")):
         text = path.read_text(encoding="utf-8")
         for pat in patterns:
-            hits = [h for h in re.findall(pat, text, flags=re.IGNORECASE)
-                    if "example.invalid" not in str(h)]
+            hits = [
+                h
+                for h in re.findall(pat, text, flags=re.IGNORECASE)
+                if "example.invalid" not in str(h)
+            ]
             assert not hits, f"{path.name}: {pat} にヒット {hits}"
         # 会社名は全て架空の「株式会社サンプル○○」形式
         m = re.search(r"^会社名: (.+)$", text, flags=re.MULTILINE)
         assert m and m.group(1).startswith("株式会社サンプル"), path.name
         # URLは架空ドメインのみ
         urls = re.findall(r"https?://\S+", text)
-        assert all(u.startswith("https://example.invalid/") for u in urls), (
-            f"{path.name}: 架空ドメイン以外のURL {urls}")
+        assert all(
+            u.startswith("https://example.invalid/") for u in urls
+        ), f"{path.name}: 架空ドメイン以外のURL {urls}"

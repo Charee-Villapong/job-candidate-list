@@ -11,7 +11,6 @@ from __future__ import annotations
 import datetime as dt
 
 import pytest
-
 from conftest import impl
 
 
@@ -58,8 +57,9 @@ def test_run_summary_contains_counts_and_ids_only():
     pipeline = impl("job_candidate_list.pipeline")
     summary = pipeline.RunSummary
     annotations = getattr(summary, "__annotations__", {})
-    forbidden = [a for a in annotations
-                 if any(k in a for k in ("company", "position", "salary"))]
+    forbidden = [
+        a for a in annotations if any(k in a for k in ("company", "position", "salary"))
+    ]
     assert not forbidden, f"RunSummary に詳細フィールドがある: {forbidden}"
 
 

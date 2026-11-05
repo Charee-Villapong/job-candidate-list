@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import pytest
-
 from conftest import (
     SAMPLES_DIR,
     build_app_config,
@@ -53,8 +52,11 @@ EXPECTED: dict[str, tuple[str, str, frozenset]] = {
     # (c) 主務不明または混在
     "SMP-019": ("c_unknown_mixed", "check", frozenset({"JOB-UNKNOWN"})),
     "SMP-020": ("c_unknown_mixed", "check", frozenset({"JOB-MIXED"})),
-    "SMP-021": ("c_unknown_mixed", "check",
-                frozenset({"JOB-UNKNOWN", "JOB-DESIGN-ONLY"})),
+    "SMP-021": (
+        "c_unknown_mixed",
+        "check",
+        frozenset({"JOB-UNKNOWN", "JOB-DESIGN-ONLY"}),
+    ),
     # (d) 主務が明確な上流職
     "SMP-022": ("d_upstream", "ok", frozenset({"JOB-UPSTREAM-OK"})),
     "SMP-023": ("d_upstream", "ok", frozenset({"JOB-UPSTREAM-OK"})),
@@ -65,13 +67,14 @@ EXPECTED: dict[str, tuple[str, str, frozenset]] = {
     # (f) 勤務地・リモート境界（勤務地の内/外はテスト側フィクスチャ対応表で決定）
     "SMP-027": ("f_location_remote", "ok", frozenset({"LOC-OK"})),
     "SMP-028": ("f_location_remote", "check", frozenset({"LOC-OUT"})),
-    "SMP-029": ("f_location_remote", "ok",
-                frozenset({"LOC-FULLREMOTE-EXEMPT"})),
+    "SMP-029": ("f_location_remote", "ok", frozenset({"LOC-FULLREMOTE-EXEMPT"})),
     "SMP-030": ("f_location_remote", "check", frozenset({"LOC-UNKNOWN"})),
-    "SMP-031": ("f_location_remote", "ok",
-                frozenset({"REMOTE-NORMALIZED"})),
-    "SMP-032": ("f_location_remote", "check",
-                frozenset({"REMOTE-UNKNOWN", "LOC-UNKNOWN"})),
+    "SMP-031": ("f_location_remote", "ok", frozenset({"REMOTE-NORMALIZED"})),
+    "SMP-032": (
+        "f_location_remote",
+        "check",
+        frozenset({"REMOTE-UNKNOWN", "LOC-UNKNOWN"}),
+    ),
     # (g) 英語要件境界
     "SMP-033": ("g_english", "hard", frozenset({"ENG-HARD"})),
     "SMP-034": ("g_english", "ok", frozenset({"ENG-WELCOME-OK"})),
@@ -79,8 +82,7 @@ EXPECTED: dict[str, tuple[str, str, frozenset]] = {
     "SMP-036": ("g_english", "hard", frozenset({"ENG-HARD"})),
     "SMP-037": ("g_english", "hard", frozenset({"ENG-HARD"})),
     "SMP-038": ("g_english", "check", frozenset({"ENG-UNKNOWN"})),
-    "SMP-039": ("g_english", "check",
-                frozenset({"ENG-UNKNOWN", "ENG-OUT-SECTION"})),
+    "SMP-039": ("g_english", "check", frozenset({"ENG-UNKNOWN", "ENG-OUT-SECTION"})),
 }
 
 CATEGORY_COUNTS = {
@@ -107,9 +109,12 @@ def test_category_counts_match_classification_design(code, count):
     """§11.2 の分類設計どおりの件数（重複カウントなし）であること。"""
     actual = [sid for sid, v in EXPECTED.items() if v[0] == code]
     assert len(actual) == count
-    files = [f for f in SAMPLES_DIR.glob("SMP-*.md")
-             if load_sample(f.name.split("_")[0]) and
-             sample_field(load_sample(f.name.split("_")[0]), "分類コード") == code]
+    files = [
+        f
+        for f in SAMPLES_DIR.glob("SMP-*.md")
+        if load_sample(f.name.split("_")[0])
+        and sample_field(load_sample(f.name.split("_")[0]), "分類コード") == code
+    ]
     assert len(files) == count
 
 
@@ -117,14 +122,22 @@ def test_category_counts_match_classification_design(code, count):
 def test_sample_contains_judgement_elements(sample_id):
     """各サンプルに判定に必要な要素が実務的な文面で含まれていること。"""
     text = load_sample(sample_id)
-    for key in ("会社名", "ポジション名", "雇用形態", "情報源URL",
-                "想定年収", "勤務地", "リモート頻度（原文）"):
+    for key in (
+        "会社名",
+        "ポジション名",
+        "雇用形態",
+        "情報源URL",
+        "想定年収",
+        "勤務地",
+        "リモート頻度（原文）",
+    ):
         assert sample_field(text, key), f"{sample_id}: {key} が空"
     for heading in ("業務内容", "応募資格", "勤務地", "会社概要"):
         assert f"## {heading}" in text, f"{sample_id}: セクション {heading} が無い"
     company = sample_field(text, "会社名")
-    assert company.startswith("株式会社サンプル"), (
-        f"{sample_id}: 会社名が架空名の形式でない: {company}")
+    assert company.startswith(
+        "株式会社サンプル"
+    ), f"{sample_id}: 会社名が架空名の形式でない: {company}"
 
 
 @pytest.mark.parametrize("sample_id", sorted(EXPECTED))
@@ -146,9 +159,7 @@ def test_sample_expected_outcome(
     text = load_sample(sample_id)
     assert sample_field(text, "分類コード") == code
     evaluate = impl("job_candidate_list.evaluate.evaluate_sample_text")
-    cfg = build_app_config(
-        profile_config_dict, judge_config_dict, local_config_dict
-    )
+    cfg = build_app_config(profile_config_dict, judge_config_dict, local_config_dict)
     whitelist = build_location_whitelist(location_whitelist_dict)
     result = evaluate(text, cfg, whitelist)
 
@@ -191,9 +202,7 @@ def test_exclusion_log_traceability_fields_are_specified(judge_config_dict):
     judge = impl("job_candidate_list.judge_hard.judge_hard_exclusions")
     hard_config = impl("job_candidate_list.config.HardConfig")
     posting = build_raw_posting(employment_raw="契約社員")
-    hits = judge(
-        posting, hard_config.from_dict(judge_config_dict["hard"])
-    )
+    hits = judge(posting, hard_config.from_dict(judge_config_dict["hard"]))
     emptype_hits = [h for h in hits if h.rule_id == "HARD-EMPTYPE"]
     assert emptype_hits, f"HARD-EMPTYPE が発火していない: {hits}"
     # どの設定を直せば判定が変わるかが config_ref で追えること
