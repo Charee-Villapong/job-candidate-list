@@ -251,9 +251,10 @@ def test_fallback_match_key_stable_when_url_changes():
 def test_duplicate_rows_are_zero_for_same_normalized_posting():
     """正規化後に同一となる求人は重複行として1行に集約される前提（②）。
 
-    重複排除そのものは pipeline / sheets 側の責務であり、公開入口が
-    §3 で一意に定まっていないため、まず候補IDレベルの同一性を確認し、
-    行レベルの検証は仕様確認事項として報告する。
+    重複排除そのものは pipeline 側の責務であり、ここではその前提となる
+    候補IDレベルの同一性を確認する。行レベル（控えを含む重複判定）の
+    検証は test_presentation_openwork_url.py の
+    test_held_candidates_are_included_in_duplicate_check で行う。
     """
     cid = impl("job_candidate_list.normalize.candidate_id")
     norm_c = impl("job_candidate_list.normalize.normalize_company")
@@ -286,9 +287,13 @@ def test_location_and_remote_unknown_fallback_is_in_spec():
     """勤務地・リモート頻度は「不明」で埋まる仕様（空欄0件の担保）。
 
     §2.2: location_text は読み取れない場合 "不明"、§6.3: リモート頻度は
-    閉じた6区分で「不明」を含む。レコード生成を伴う検証は実装後に行う。
+    閉じた6区分で「不明」を含む。追補 A3 で CandidateRecord のデフォルト
+    （location_text="不明"、remote_division=不明、location_result=
+    勤務地判定不能）が確定したため、ID のみで生成して実挙動を確認する。
     """
-    models = impl("job_candidate_list.models")
-    assert hasattr(models, "CandidateRecord")
-    pytest.fail("未検証: CandidateRecord の生成方法（必須引数・デフォルト）が"
-                "§2.2 で未確定のため、「不明」で埋まる実挙動を確認できない")
+    from conftest import build_candidate_record, enum_value
+
+    record = build_candidate_record("cand_0000000000000001")
+    assert record.location_text == "不明"
+    assert enum_value(record.remote_division) == "不明"
+    assert enum_value(record.location_result) == "勤務地判定不能"

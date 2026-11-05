@@ -2,18 +2,24 @@
 
 設計方針:
 - 実装（src/job_candidate_list/）はまだ存在しない前提。公開インターフェース
-  （docs/architecture.md §3）へのアクセスはすべて `impl()` 経由とし、
-  未実装の場合は ImportError ではなく「どの公開関数が未実装か」が分かる
-  メッセージでテストを失敗させる（pytest の収集は通す）。
+  （docs/architecture.md §3 と docs/architecture-addendum.md の確定仕様）への
+  アクセスはすべて `impl()` 経由とし、未実装の場合は ImportError ではなく
+  「どの公開インターフェースが未実装か」が分かるメッセージでテストを
+  失敗させる（pytest の収集は通す）。失敗理由は全テストで
+  「未実装: <対象> …」の形に統一する。
 - ネットワーク・実 Sheets には依存しない。Sheets / OpenWork は
   Protocol 境界に対するフェイク（本ファイルの Fake* クラス）を使う。
 - 設定フィクスチャは architecture.md §4 のキー構造を模した辞書で保持する。
   特に勤務地対応表はテスト専用の小さなもの（架空の市区町村）を使い、
   実在の本人の対応表とは切り離す。
+- オブジェクト生成は追補の確定インターフェース（AppConfig.from_dicts、
+  CandidateRecord は candidate_id のみ必須、LocationWhitelist.from_dict 等）を
+  使う共通ヘルパー（build_*）に寄せ、呼び出し形の調整箇所を 1 か所にする。
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import importlib
 import re
 from pathlib import Path
@@ -30,13 +36,14 @@ ARCHITECTURE_MD = REPO_ROOT / "docs" / "architecture.md"
 # 実装へのアクセス（未実装なら理由付きで失敗させる）
 # ---------------------------------------------------------------------------
 def impl(dotted: str):
-    """`job_candidate_list.<module>.<attr>` を取得する。
+    """`job_candidate_list.<module>[.<attr>...]` を取得する。
 
-    存在しない場合は、対象関数が未実装であることを明示して失敗させる。
+    存在しない場合は、対象が未実装であることを明示して失敗させる。
+    モジュール自体を指すパス（例: `job_candidate_list.errors`）も扱える。
     """
     parts = dotted.split(".")
     last_error: Exception | None = None
-    for cut in range(len(parts) - 1, 1, -1):
+    for cut in range(len(parts), 1, -1):
         module_name = ".".join(parts[:cut])
         try:
             obj = importlib.import_module(module_name)
@@ -48,14 +55,21 @@ def impl(dotted: str):
                 pytest.fail(
                     f"未実装: {dotted} が存在しない"
                     f"（{module_name} に {attr} が無い）。"
-                    "architecture.md §3 の公開インターフェース仕様どおりでない。"
+                    "architecture.md §3／追補の公開インターフェース"
+                    "仕様どおりでない。"
                 )
             obj = getattr(obj, attr)
         return obj
     pytest.fail(
         f"未実装: {dotted} を import できない（{last_error}）。"
-        "architecture.md §3 の公開インターフェースがまだ実装されていない。"
+        "architecture.md §3／追補の公開インターフェースが"
+        "まだ実装されていない。"
     )
+
+
+def enum_value(value):
+    """StrEnum でも素の文字列でも、値そのものを文字列として取り出す。"""
+    return str(getattr(value, "value", value))
 
 
 def impl_module(module: str):
@@ -204,6 +218,19 @@ def profile_config_dict() -> dict:
 
 
 @pytest.fixture()
+def local_config_dict() -> dict:
+    """接続・実値系設定のフィクスチャ（値は全て架空・一般化）。"""
+    return {
+        "spreadsheet_id": "sample-spreadsheet",
+        "sheet_names": {
+            "candidates": "候補リスト",
+            "registry": "情報源レジストリ",
+            "exclusions": "除外ログ",
+        },
+    }
+
+
+@pytest.fixture()
 def location_whitelist_dict() -> dict:
     """テスト専用の小さな勤務地対応表（架空。本人の実対応表とは無関係）。"""
     return {
@@ -259,3 +286,145 @@ class FakeOpenworkProvider:
     def search_company(self, company_norm: str):
         self.calls.append(company_norm)
         return self._results.get(company_norm, [])
+
+
+class FakeSourceAdapter:
+    """SourceAdapter Protocol（追補付録）に対するフェイク。
+
+    `fetch(source)` には SourceEntry が渡る想定だが、引数は記録するだけで
+    解釈せず、固定の RawPosting 一覧を返す。
+    """
+
+    def __init__(self, postings=None):
+        self._postings = list(postings or [])
+        self.calls: list = []
+
+    def fetch(self, source=None):
+        self.calls.append(source)
+        return list(self._postings)
+
+
+# ---------------------------------------------------------------------------
+# レジストリ行フィクスチャ（§8.1 の列構成。値は全て架空）
+# ---------------------------------------------------------------------------
+REGISTRY_HEADER = [
+    "情報源名", "URLパターン", "ログイン要否", "資格情報の有無", "実測結果",
+    "自動取得可否", "リスク評価結果と判定根拠", "費用条件確認", "自動応募可否",
+    "送信確定方法", "対象化の最終判断", "備考",
+]
+
+_REGISTRY_MEASURED_OK = (
+    "結果=対象外（ログイン不要）; 取得方法=公式公開API; 確認日=2026-11-05"
+)
+_REGISTRY_RISK_LOW = (
+    "リスク=低; 根拠=公式ドキュメントで公開求人の取得が明記されている; "
+    "確認日=2026-11-05"
+)
+
+
+def registry_rows(source_id: str = "サンプル情報源A") -> list[list[str]]:
+    """収集可能な情報源 1 件分（ヘッダ＋データ行）を返す。"""
+    return [
+        list(REGISTRY_HEADER),
+        [
+            source_id,
+            "https://example.invalid/board-a/*",
+            "不要",
+            "不要（ログイン不要のため）",
+            _REGISTRY_MEASURED_OK,
+            "可",
+            _REGISTRY_RISK_LOW,
+            "確認済み（無料または既存契約範囲内）",
+            "不可",
+            "対象外（自動応募は第3段階で確定）",
+            "対象",
+            "",
+        ],
+    ]
+
+
+# ---------------------------------------------------------------------------
+# 確定インターフェースによるオブジェクト生成ヘルパー（追補 A1〜A3）
+# ---------------------------------------------------------------------------
+def build_app_config(profile_data: dict, judge_data: dict, local_data=None):
+    """AppConfig.from_dicts（追補 A2.2）で設定オブジェクトを組み立てる。"""
+    app_config = impl("job_candidate_list.config.AppConfig")
+    if local_data is None:
+        local_data = {
+            "spreadsheet_id": "sample-spreadsheet",
+            "sheet_names": {
+                "candidates": "候補リスト",
+                "registry": "情報源レジストリ",
+                "exclusions": "除外ログ",
+            },
+        }
+    return app_config.from_dicts(profile_data, judge_data, local_data)
+
+
+def build_candidate_record(candidate_id: str, **over):
+    """CandidateRecord を生成する（追補 A3: 必須引数は candidate_id のみ）。"""
+    models = impl("job_candidate_list.models")
+    return models.CandidateRecord(candidate_id=candidate_id, **over)
+
+
+def build_raw_posting(**over):
+    """RawPosting を生成する。デフォルトはハード除外に触れない上流職の求人。"""
+    models = impl("job_candidate_list.models")
+    source_type = models.SourceType("公開求人")
+    defaults = {
+        "source_id": "サンプル情報源A",
+        "source_type": source_type,
+        "raw_url": "https://example.invalid/j/1",
+        "company_raw": "株式会社サンプル青葉",
+        "position_raw": "プロダクトマネージャー",
+        "employment_raw": "正社員",
+        "salary_min_jpy": 6_000_000,
+        "salary_max_jpy": 8_000_000,
+        "salary_raw": "年収 600万円〜800万円",
+        "location_raw": "サンプル甲市",
+        "remote_raw": "出社週2〜3日",
+        "sections": {
+            "業務内容": (
+                "データ活用推進の企画立案を主担当として担います。"
+                "関係者調整を行いながらプロジェクトの方向付けを行い、"
+                "施策の推進と意思決定の支援を行います。"
+            ),
+            "応募資格": "データ領域での業務経験。関係者との調整経験。",
+            "勤務地": "勤務地はサンプル甲市です。",
+            "会社概要": (
+                "データ分析基盤とAI活用支援のプロダクトを提供する"
+                "事業を行っています。"
+            ),
+        },
+        "company_overview_raw": (
+            "データ分析基盤とAI活用支援のプロダクトを提供する事業を行っています。"
+        ),
+        "fetched_on": dt.date(2026, 11, 5),
+    }
+    defaults.update(over)
+    return models.RawPosting(**defaults)
+
+
+def build_location_whitelist(data: dict):
+    """LocationWhitelist.from_dict（追補 A2.3）で対応表オブジェクトを作る。"""
+    models = impl("job_candidate_list.models")
+    return models.LocationWhitelist.from_dict(data)
+
+
+def run_fake_collection(profile_data, judge_data, local_data=None, *,
+                        existing=(), postings=(), dry_run=False):
+    """pipeline.run_collection をフェイク境界で 1 回実行する。
+
+    戻り値は (RunSummary, FakeSheetsGateway)。情報源は
+    「サンプル情報源A」1 件（レジストリ行・取得結果ともフィクスチャ）。
+    """
+    cfg = build_app_config(profile_data, judge_data, local_data)
+    gateway = FakeSheetsGateway(
+        candidates=list(existing), registry_rows=registry_rows()
+    )
+    adapter = FakeSourceAdapter(postings)
+    run = impl("job_candidate_list.pipeline.run_collection")
+    summary = run(
+        cfg, gateway, {"サンプル情報源A": adapter}, None, dry_run
+    )
+    return summary, gateway

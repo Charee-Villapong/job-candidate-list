@@ -8,7 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import impl
+from conftest import (
+    build_candidate_record,
+    build_raw_posting,
+    enum_value,
+    impl,
+    run_fake_collection,
+)
 
 EXPECTED_AUTO_COLUMNS = [
     "候補ID", "会社名", "ポジション名", "雇用形態", "想定年収レンジ", "勤務地",
@@ -21,15 +27,8 @@ EXPECTED_MANUAL_COLUMNS = ["本人の判断", "本人のメモ"]
 
 
 def _record(candidate_id: str, **over):
-    """CandidateRecord を生成する。生成方法が未確定なら理由付きで失敗。"""
-    models = impl("job_candidate_list.models")
-    try:
-        return models.CandidateRecord(candidate_id=candidate_id, **over)
-    except TypeError as exc:
-        pytest.fail(
-            "未検証（仕様確認事項）: CandidateRecord の生成方法"
-            f"（必須引数・デフォルト）が §2.2 で未確定のため構築できない: {exc}"
-        )
+    """CandidateRecord を生成する（追補 A3: 必須引数は candidate_id のみ）。"""
+    return build_candidate_record(candidate_id, **over)
 
 
 def _diff(old, new):
@@ -68,46 +67,102 @@ def test_diff_contains_counts_and_ids_only():
         assert "company" not in attr and "salary" not in attr
 
 
+def _guard_cfg():
+    """GuardConfig を追補 A2.2 の from_dict で生成する（§4.2 の初期値）。"""
+    guard_config = impl("job_candidate_list.config.GuardConfig")
+    return guard_config.from_dict(
+        {"max_close_ratio": 0.5, "max_total_change_ratio": 1.0}
+    )
+
+
 def test_mass_change_guard_stops_when_all_closed():
     """ドライランで全件掲載終了の場合、本実行が止まる（④・§3.13）。"""
     guard = impl("job_candidate_list.diff_guard.mass_change_guard")
-    cfg = impl("job_candidate_list.config")
     old = [_record(f"cand_{i:016d}") for i in range(10)]
     diff = _diff(old, [])
-    result = guard(diff, existing_count=10, cfg=_guard_cfg(cfg))
-    assert str(getattr(result, "status", result)) in ("stop", "GuardResult.stop")
-
-
-def _guard_cfg(cfg_module):  # pragma: no cover - 実装後に有効化
-    pytest.fail("未検証（仕様確認事項）: GuardConfig の生成方法が未確定")
+    result = guard(diff, existing_count=10, cfg=_guard_cfg())
+    assert enum_value(getattr(result, "status", result)) == "stop"
 
 
 def test_mass_change_guard_allows_small_change():
-    """小規模な変更ではガードが止めない（§3.13）。"""
+    """小規模な変更ではガードが止めない（§3.13）。
+
+    既存10件に対し追加1件・終了1件は、終了比率・変更合計比率とも
+    閾値（0.5／1.0）の範囲内。
+    """
     guard = impl("job_candidate_list.diff_guard.mass_change_guard")
-    assert guard is not None
-    pytest.fail("未検証（仕様確認事項）: Diff / GuardConfig の生成方法が"
-                "未確定のため、小規模変更ケースを構築できない")
+    old = [_record(f"cand_{i:016d}") for i in range(10)]
+    new = old[1:] + [_record("cand_0000000000000100")]
+    diff = _diff(old, new)
+    result = guard(diff, existing_count=10, cfg=_guard_cfg())
+    assert enum_value(getattr(result, "status", result)) == "ok"
+
+
+class _FakeSheetsBackend:
+    """SheetsBackend（追補 A5）に対するフェイク。書込内容を記録する。"""
+
+    def __init__(self):
+        self.writes: list = []
+
+    def read_rows(self, tab_name: str):
+        return []
+
+    def read_links(self, tab_name: str):
+        return {}
+
+    def write_rows(self, tab_name: str, rows) -> None:
+        self.writes.append((tab_name, [list(r) for r in rows]))
 
 
 def test_upsert_preserves_manual_column_values():
     """自動更新で人手列（本人の判断・メモ）の値が保持される（④）。
 
-    SheetsGateway の具象クラス名が §3.11 で未確定（Protocol のみ）のため、
-    実クラスでの検証はクラス確定後に行う。ここでは列ホワイトリストによる
-    構造的担保（test_auto_and_manual_columns_are_disjoint）と対で検証する。
+    具象クラスは追補 A5 で確定した GoogleSheetsGateway。backend へ
+    渡される行が自動列（AUTO_COLUMNS_CANDIDATE）の分だけから構成され、
+    人手列の列位置へ書き込みデータを渡さないことで、人手列の値が
+    保持されることを実クラスで検証する。
     """
     gw = impl("job_candidate_list.sheets_gateway")
-    concrete = [n for n in dir(gw) if n.endswith("Gateway") and n != "SheetsGateway"]
-    assert concrete, (
-        "未検証（仕様確認事項）: SheetsGateway の具象クラスが §3.11 で未確定のため、"
-        "フェイク越しの人手列保持を実クラスで検証できない"
+    backend = _FakeSheetsBackend()
+    gateway = gw.GoogleSheetsGateway(backend)
+    record = _record(
+        "cand_0000000000000001",
+        company="株式会社サンプル青葉",
+        position="プロダクトマネージャー",
     )
+    gateway.upsert_candidates([record])
+
+    assert backend.writes, "backend への書込が行われていない"
+    auto = list(gw.AUTO_COLUMNS_CANDIDATE)
+    manual = list(gw.MANUAL_COLUMNS_CANDIDATE)
+    for tab_name, rows in backend.writes:
+        assert tab_name == "候補リスト"
+        for row in rows:
+            # 行は自動列の分だけ。人手列ぶんのセルは含まれない
+            assert len(row) == len(auto), (
+                f"書込行の列数が自動列数と一致しない: {len(row)} != {len(auto)}"
+            )
+    assert not set(auto) & set(manual)
 
 
-def test_dry_run_does_not_write_to_sheet():
-    """dry_run=True の場合はシートへ書き込まない（§3.15）。"""
+def test_dry_run_does_not_write_to_sheet(
+    judge_config_dict, profile_config_dict, local_config_dict
+):
+    """dry_run=True の場合はシートへ書き込まない（§3.15）。
+
+    AppConfig は AppConfig.from_dicts（追補 A2.2）、情報源アダプタは
+    SourceAdapter Protocol（追補付録）に対するフェイクで構築する。
+    """
     run = impl("job_candidate_list.pipeline.run_collection")
     assert run is not None
-    pytest.fail("未検証: AppConfig / 情報源アダプタの構築方法が未確定のため、"
-                "FakeSheetsGateway を使ったドライラン検証を構築できない")
+    summary, gateway = run_fake_collection(
+        profile_config_dict,
+        judge_config_dict,
+        local_config_dict,
+        existing=[],
+        postings=[build_raw_posting()],
+        dry_run=True,
+    )
+    assert summary is not None
+    assert gateway.upserted == [], "dry_run なのに候補が書き込まれた"
+    assert gateway.exclusions == [], "dry_run なのに除外ログが書き込まれた"

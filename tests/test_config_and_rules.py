@@ -9,7 +9,16 @@ import re
 
 import pytest
 
-from conftest import ARCHITECTURE_MD, REPO_ROOT, impl
+from conftest import (
+    ARCHITECTURE_MD,
+    REPO_ROOT,
+    build_app_config,
+    build_candidate_record,
+    build_location_whitelist,
+    build_raw_posting,
+    enum_value,
+    impl,
+)
 
 REQUIRED_JUDGE_KEYS = [
     "normalize.tracking_params",
@@ -97,45 +106,160 @@ def impl_module_errors():
     return errors_mod.ConfigError
 
 
-def test_validate_config_returns_empty_for_valid_config(judge_config_dict):
-    """正常な設定では validate_config が空リストを返す（§3.1）。"""
+def test_validate_config_returns_empty_for_valid_config(
+    judge_config_dict, profile_config_dict, local_config_dict
+):
+    """正常な設定では validate_config が空リストを返す（§3.1）。
+
+    設定オブジェクトは AppConfig.from_dicts（追補 A2.2）で組み立てる。
+    """
     validate_config = impl("job_candidate_list.config.validate_config")
-    assert validate_config is not None
-    pytest.fail("未検証: AppConfig の生成方法（§3.1）が未確定のため、"
-                "有効な設定オブジェクトを構築して validate_config に渡せない")
+    cfg = build_app_config(
+        profile_config_dict, judge_config_dict, local_config_dict
+    )
+    assert validate_config(cfg) == []
 
 
-def test_changing_weekly_limit_changes_presentation_without_code_change():
+def test_changing_weekly_limit_changes_presentation_without_code_change(
+    judge_config_dict, profile_config_dict, local_config_dict
+):
     """設定値（提示上限N）を1つ変えると判定結果が変わる（①の反映性）。"""
     split = impl("job_candidate_list.presentation.split_presentation")
-    assert split is not None
-    pytest.fail("未検証: CandidateRecord の生成方法（§2.2）が未確定のため、"
-                "上限変更前後の振り分けを構築できない")
+    candidates = [
+        build_candidate_record(f"cand_{i:016d}", fitness="中") for i in range(3)
+    ]
+    judge_one = dict(judge_config_dict, presentation={"weekly_limit": 1})
+    cfg_one = build_app_config(profile_config_dict, judge_one, local_config_dict)
+    presented, held = split(candidates, cfg_one.presentation.weekly_limit)
+    assert len(presented) == 1 and len(held) == 2
+
+    judge_two = dict(judge_config_dict, presentation={"weekly_limit": 2})
+    cfg_two = build_app_config(profile_config_dict, judge_two, local_config_dict)
+    presented, held = split(candidates, cfg_two.presentation.weekly_limit)
+    assert len(presented) == 2 and len(held) == 1
 
 
-def test_changing_salary_threshold_changes_fitness_without_code_change():
-    """設定値（年収閾値）を1つ変えると適合度が変わる（①の反映性）。"""
+def _fitness_sub_results():
+    """assign_fitness の引数（各判定結果）を確定形で組み立てる。"""
+    duty_cls = impl("job_candidate_list.judge_duty.DutyResult")
+    location_cls = impl("job_candidate_list.judge_location.LocationResult")
+    remote_cls = impl("job_candidate_list.judge_remote.RemoteResult")
+    english_cls = impl("job_candidate_list.judge_english.EnglishResult")
+    duty = duty_cls(
+        outcome="upstream",
+        rule_ids=["JOB-UPSTREAM-OK"],
+        reasons=["主務が上流業務と判定できる"],
+        matched_upstream=["企画立案"],
+        matched_impl=[],
+    )
+    location = location_cls(
+        division="勤務地適合",
+        rule_ids=["LOC-OK"],
+        reasons=["勤務地が対応表内"],
+        matched_municipality="サンプル甲市",
+    )
+    remote = remote_cls(
+        division="出社週2〜3日",
+        rule_ids=["REMOTE-NORMALIZED"],
+        raw_found="出社週2〜3日",
+    )
+    english = english_cls(outcome="no_mention", rule_ids=[], reasons=[])
+    return duty, location, remote, english
+
+
+def _reason_rule_ids(reasons) -> set:
+    ids = set()
+    for reason in reasons:
+        ids |= set(getattr(reason, "rule_ids", reason[1]))
+    return ids
+
+
+def test_changing_salary_threshold_changes_fitness_without_code_change(
+    judge_config_dict,
+):
+    """設定値（年収閾値）を1つ変えると適合度が変わる（①の反映性）。
+
+    年収上限が salary_check_threshold_jpy を大幅に下回る場合は要確認
+    （SAL-BELOW、§3.9 規則5）。閾値だけを変えて結果が変わることを見る。
+    """
     assign = impl("job_candidate_list.fitness.assign_fitness")
-    assert assign is not None
-    pytest.fail("未検証: 各判定結果オブジェクトの生成方法が未確定のため、"
-                "閾値変更前後の適合度を構築できない")
+    fitness_config = impl("job_candidate_list.config.FitnessConfig")
+    posting = build_raw_posting(
+        salary_min_jpy=1_000_000,
+        salary_max_jpy=1_000_000,
+        salary_raw="年収 100万円",
+    )
+    duty, location, remote, english = _fitness_sub_results()
+
+    base = dict(judge_config_dict["fitness"], salary_check_threshold_jpy=500_000)
+    result_ok = assign(
+        posting, duty, location, remote, english,
+        fitness_config.from_dict(base),
+    )
+    assert enum_value(result_ok.fitness) in ("高", "中")
+
+    raised = dict(
+        judge_config_dict["fitness"], salary_check_threshold_jpy=4_000_000
+    )
+    result_check = assign(
+        posting, duty, location, remote, english,
+        fitness_config.from_dict(raised),
+    )
+    assert enum_value(result_check.fitness) == "要確認"
+    assert "SAL-BELOW" in _reason_rule_ids(result_check.check_reasons)
 
 
-def test_changing_upstream_keyword_changes_duty_outcome():
+def test_changing_upstream_keyword_changes_duty_outcome(judge_config_dict):
     """設定値（上流キーワード群）を1つ変えると主務判定が変わる（①の反映性）。"""
     judge = impl("job_candidate_list.judge_duty.judge_main_duty")
-    assert judge is not None
-    pytest.fail("未検証: DutyConfig の生成方法が未確定のため、"
-                "キーワード変更前後の判定を構築できない")
+    duty_config = impl("job_candidate_list.config.DutyConfig")
+    sections = {"業務内容": "データ活用の企画立案と施策の推進を担います。"}
+
+    base = judge(sections, duty_config.from_dict(judge_config_dict["duty"]))
+    assert enum_value(base.outcome) == "upstream"
+    assert "JOB-UPSTREAM-OK" in list(base.rule_ids)
+
+    changed_dict = dict(
+        judge_config_dict["duty"], upstream_keywords=["サンプル未使用語"]
+    )
+    changed = judge(sections, duty_config.from_dict(changed_dict))
+    assert enum_value(changed.outcome) == "unknown"
+    assert "JOB-UNKNOWN" in list(changed.rule_ids)
 
 
-def test_changing_whitelist_changes_location_outcome(location_whitelist_dict):
+def test_changing_whitelist_changes_location_outcome(
+    judge_config_dict, location_whitelist_dict
+):
     """設定データ（勤務地対応表）を変えると勤務地判定が変わる（①・§13）。"""
     judge = impl("job_candidate_list.judge_location.judge_location")
-    assert judge is not None
-    assert location_whitelist_dict["municipalities"]
-    pytest.fail("未検証: LocationWhitelist の読込形式（§13）と"
-                "RawPosting の生成方法が未確定のため、対応表変更前後の判定を構築できない")
+    location_config = impl("job_candidate_list.config.LocationConfig")
+    remote_cls = impl("job_candidate_list.judge_remote.RemoteResult")
+    posting = build_raw_posting()
+    remote = remote_cls(
+        division="出社週2〜3日",
+        rule_ids=["REMOTE-NORMALIZED"],
+        raw_found="出社週2〜3日",
+    )
+    cfg = location_config.from_dict(judge_config_dict["location"])
+
+    whitelist_in = build_location_whitelist(location_whitelist_dict)
+    result_in = judge(posting, remote, whitelist_in, cfg)
+    assert enum_value(result_in.division) == "勤務地適合"
+    assert "LOC-OK" in list(result_in.rule_ids)
+    assert result_in.matched_municipality == "サンプル甲市"
+
+    whitelist_out = build_location_whitelist(
+        {
+            "version": 1,
+            "municipalities": [
+                {"prefecture": "サンプル県", "municipality": "サンプル区"}
+            ],
+            "notes": "サンプル甲市を含まない対応表",
+        }
+    )
+    result_out = judge(posting, remote, whitelist_out, cfg)
+    assert enum_value(result_out.division) == "勤務地不適合"
+    assert "LOC-OUT" in list(result_out.rule_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -215,9 +339,25 @@ def test_samples_and_placement_table_have_no_sensitive_patterns(pattern):
 
 def test_config_templates_contain_no_real_values():
     """設定テンプレートに実値（認証情報等）が含まれないこと（§4・§13）。"""
-    templates = REPO_ROOT / "config" / "templates"
     load_config = impl("job_candidate_list.config.load_config")
     assert load_config is not None
-    assert templates.exists() or True  # テンプレート自体の作成は Executor 担当
-    pytest.fail("未検証: config/templates/ の実ファイルが未作成のため、"
-                "伏せ字のみであることを読み取って検証できない")
+    templates = REPO_ROOT / "config" / "templates"
+    assert templates.is_dir(), (
+        "未実装: config/templates/ が存在しない"
+        "（設定テンプレートの実ファイルがまだ作成されていない）"
+    )
+    files = [
+        p for p in templates.rglob("*")
+        if p.is_file() and p.suffix in (".yaml", ".yml", ".md", ".txt")
+    ]
+    assert files, "未実装: config/templates/ にテンプレートファイルが無い"
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        for pattern in SENSITIVE_PATTERNS:
+            hits = [
+                h for h in re.findall(pattern, text, flags=re.IGNORECASE)
+                if "example.invalid" not in str(h)
+            ]
+            assert not hits, (
+                f"{path} に実値らしきパターン {pattern} のヒット: {hits}"
+            )

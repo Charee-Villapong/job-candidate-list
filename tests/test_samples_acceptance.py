@@ -9,17 +9,23 @@
 - ("ok", {ルールID,...})   : ハード除外されない（適合度は高/中/要確認のいずれか
                              になりうるが、少なくとも記載ルールIDが発火する）。
 
-注: §3 には「サンプルテキスト→RawPosting 化＋一括判定」の公開入口が定義されて
-いないため、エンドツーエンドの判定検証は入口の確定後に有効化する
-（仕様確認事項として最終報告に記載）。サンプル実体の完全性検証は
-実装なしで今すぐ検証できる。
+注: 判定入口は追補 A1 で確定した `evaluate.evaluate_sample_text`
+（サンプルテキスト→RawPosting 化＋一括判定、純粋関数）を使う。
+戻り値 EvaluationResult の種別（kind）・発火ルール ID・適合度で検証する。
 """
 
 from __future__ import annotations
 
 import pytest
 
-from conftest import SAMPLES_DIR, load_sample, sample_field
+from conftest import (
+    SAMPLES_DIR,
+    build_app_config,
+    build_location_whitelist,
+    enum_value,
+    load_sample,
+    sample_field,
+)
 
 # sample_id -> (分類コード, 期待種別, 期待ルールID集合)
 EXPECTED: dict[str, tuple[str, str, frozenset]] = {
@@ -122,22 +128,48 @@ def test_sample_contains_judgement_elements(sample_id):
 
 
 @pytest.mark.parametrize("sample_id", sorted(EXPECTED))
-def test_sample_expected_outcome(sample_id):
+def test_sample_expected_outcome(
+    sample_id,
+    judge_config_dict,
+    profile_config_dict,
+    local_config_dict,
+    location_whitelist_dict,
+):
     """サンプルを判定系の公開インターフェースに通し期待結果と一致すること。
 
-    現時点では §3 にサンプル→RawPosting 化と一括判定の公開入口がないため、
-    入口未確定として失敗させる（仕様確認事項）。
+    判定入口は追補 A1 の evaluate_sample_text。期待種別は
+    EvaluationResult.kind（hard／check／ok、追補 A1.2）と対応させる。
     """
+    from conftest import impl
+
     code, kind, rule_ids = EXPECTED[sample_id]
     text = load_sample(sample_id)
     assert sample_field(text, "分類コード") == code
-    pytest.fail(
-        f"未検証（仕様確認事項）: {sample_id} の期待結果は {kind} / {sorted(rule_ids)} "
-        "だが、architecture.md §3 には求人テキストを RawPosting 化して"
-        "ハード除外・適合度まで一括判定する公開入口が定義されていない。"
-        "pipeline.run_collection は SheetsGateway と情報源アダプタを前提とするため、"
-        "サンプル単体検証の入口確定後に本テストを有効化すること。"
+    evaluate = impl("job_candidate_list.evaluate.evaluate_sample_text")
+    cfg = build_app_config(
+        profile_config_dict, judge_config_dict, local_config_dict
     )
+    whitelist = build_location_whitelist(location_whitelist_dict)
+    result = evaluate(text, cfg, whitelist)
+
+    assert enum_value(result.kind) == kind, (
+        f"{sample_id}: 種別が期待 {kind} と異なる "
+        f"(rule_ids={list(result.rule_ids)})"
+    )
+    assert result.hard_excluded is (kind == "hard")
+    assert rule_ids <= set(result.rule_ids), (
+        f"{sample_id}: 期待ルール {sorted(rule_ids)} が発火していない "
+        f"(実際: {list(result.rule_ids)})"
+    )
+    if kind == "hard":
+        # ハード除外時は適合度付けを行わない（追補 A1.3 手順6）
+        assert result.fitness_result is None
+    elif kind == "check":
+        assert result.fitness_result is not None
+        assert enum_value(result.fitness_result.fitness) == "要確認"
+    else:  # ok
+        assert result.fitness_result is not None
+        assert enum_value(result.fitness_result.fitness) in ("高", "中")
 
 
 def test_f_samples_use_fixture_municipalities():
@@ -147,15 +179,23 @@ def test_f_samples_use_fixture_municipalities():
     assert "サンプル遠方市" in load_sample("SMP-029")
 
 
-def test_exclusion_log_traceability_fields_are_specified():
+def test_exclusion_log_traceability_fields_are_specified(judge_config_dict):
     """除外ログから「どの設定を直せば判定が変わるか」が追えること（③末尾）。
 
     §3.8 の ExclusionHit は config_ref を含み、§10.3 の除外ログに
     設定参照列がある。実装側の確認は judge_hard の戻り値で行う。
+    HardConfig は追補 A2.2 の from_dict で生成する。
     """
-    from conftest import impl
+    from conftest import build_raw_posting, impl
 
     judge = impl("job_candidate_list.judge_hard.judge_hard_exclusions")
-    assert judge is not None
-    pytest.fail("未検証: RawPosting / HardConfig の生成方法が未確定のため、"
-                "ExclusionHit.config_ref の実値を確認できない")
+    hard_config = impl("job_candidate_list.config.HardConfig")
+    posting = build_raw_posting(employment_raw="契約社員")
+    hits = judge(
+        posting, hard_config.from_dict(judge_config_dict["hard"])
+    )
+    emptype_hits = [h for h in hits if h.rule_id == "HARD-EMPTYPE"]
+    assert emptype_hits, f"HARD-EMPTYPE が発火していない: {hits}"
+    # どの設定を直せば判定が変わるかが config_ref で追えること
+    assert emptype_hits[0].config_ref == "hard.non_regular_keywords"
+    assert all(h.config_ref.startswith("hard.") for h in hits)

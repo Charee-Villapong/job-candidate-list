@@ -1,11 +1,14 @@
 """完了の定義⑤: 禁止ワードによる実行停止・通知文の形式。
 
 根拠: 企画書「完了の定義」⑤、architecture.md §3.3 / §3.15 / §12 手順4・13。
-通知文そのものの生成インターフェースは §3 に定義がないため、
-形式検証は仕様確認事項として扱う（最終報告に記載）。
+通知文の生成インターフェースは追補 A4 で確定した
+`pipeline.build_notification_text(summary, list_url)` と
+`pipeline.RunSummary`（件数と候補 ID・情報源名のみ）を使う。
 """
 
 from __future__ import annotations
+
+import datetime as dt
 
 import pytest
 
@@ -60,16 +63,52 @@ def test_run_summary_contains_counts_and_ids_only():
     assert not forbidden, f"RunSummary に詳細フィールドがある: {forbidden}"
 
 
+def _run_summary(**over):
+    """RunSummary を追補 A4.1 の確定フィールドで組み立てる。"""
+    pipeline = impl("job_candidate_list.pipeline")
+    fields = {
+        "run_on": dt.date(2026, 11, 5),
+        "dry_run": False,
+        "stopped_by_guard": False,
+        "collected_count": 6,
+        "added_count": 2,
+        "updated_count": 1,
+        "closed_count": 0,
+        "excluded_count": 3,
+        "check_only_count": 1,
+        "check_counts_by_reason": (("主務", 1),),
+        "presented_count": 2,
+        "held_new_count": 1,
+        "held_promoted_count": 0,
+        "held_remaining_count": 1,
+        "held_closed_count": 0,
+        "openwork_disabled_count": 2,
+        "source_names": ("サンプル情報源A",),
+        "skipped_source_names": (),
+        "added_ids": ("cand_0000000000000001", "cand_0000000000000002"),
+        "updated_ids": ("cand_0000000000000003",),
+        "closed_ids": (),
+        "excluded_ids": ("cand_0000000000000004",),
+    }
+    fields.update(over)
+    return pipeline.RunSummary(**fields)
+
+
 def test_notification_text_format_has_no_details():
     """通知文に会社名等の詳細が含まれない形式であること（⑤）。
 
-    §3 に通知文生成の公開インターフェースが定義されていないため、
-    インターフェース確定後に検証する（仕様確認事項）。
+    生成関数は追補 A4.2 の build_notification_text。出力は固定
+    テンプレート（件数とリスト参照のみ）どおりであることを確認する。
     """
-    pytest.fail(
-        "未検証（仕様確認事項）: architecture.md §3 には通知文を生成する"
-        "公開インターフェースが定義されていない（RunSummary は件数・ID のみと"
-        "定められているが、通知文への変換責務の所在が未確定）。"
-        "通知は件数とリストへの参照のみで構成されることの検証は、"
-        "生成インターフェースの確定後に行う。"
+    build = impl("job_candidate_list.pipeline.build_notification_text")
+    text = build(_run_summary(), "https://example.invalid/list")
+    expected = (
+        "応募候補リストを更新しました（2026-11-05）\n"
+        "新規 2件／更新 1件／掲載終了 0件／除外 3件／要確認 1件\n"
+        "提示 2件／控え 新規1件・繰り上げ0件・残1件\n"
+        "候補リスト: https://example.invalid/list"
     )
+    assert text.strip() == expected
+    # 詳細（会社名・ポジション名・年収等）が現れていないこと
+    assert "株式会社" not in text
+    assert "万円" not in text
