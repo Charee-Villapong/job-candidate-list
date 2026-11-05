@@ -58,9 +58,9 @@ class LeverAdapter:
                     if label:
                         extra_sections[label] = content
                 overview = str(job.get("additionalPlain", "") or "")
-                full_text = "\n".join(
-                    part for part in [body, *list_texts, overview] if part
-                )
+                # 追加情報（会社概要）は業務内容セクションには混ぜず、
+                # company_overview_raw としてのみ渡す。
+                full_text = "\n".join(part for part in [body, *list_texts] if part)
                 salary_min = salary_max = salary_raw = None
                 salary_range = job.get("salaryRange") or {}
                 if salary_range.get("currency") == "JPY" and isinstance(
