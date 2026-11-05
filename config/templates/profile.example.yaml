@@ -1,0 +1,17 @@
+# 志向プロファイルのテンプレート（伏せ字）。
+# 実値は config/local/profile.local.yaml（gitignore 対象）に置く。
+# 本人の指示以外ではプロファイルを書き換えない。
+profile_version: 1
+last_updated: null
+target_domains:
+  - "<対象領域を表す一般化キーワード>"
+target_role_labels:
+  - "<対象職種の肩書き例>"
+salary_target_jpy: 0
+employment_allowed:
+  - "<許可する雇用形態>"
+remote_preference: null
+location_condition_enabled: true
+location_hard_exclude: false
+search_queries:
+  - "<一般化した検索キーワードの組み合わせ>"

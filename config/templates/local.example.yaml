@@ -1,0 +1,16 @@
+# 接続・実値系設定のテンプレート（伏せ字）。
+# 実値は config/local/local.local.yaml（gitignore 対象）に置く。
+# 資格情報の実値はここにも書かない（Secure Vault で保持する）。
+spreadsheet_id: "<応募候補リスト Spreadsheet の ID>"
+sheet_names:
+  candidates: "候補リスト"
+  registry: "情報源レジストリ"
+  exclusions: "除外ログ"
+banned_words_file: "banned_words.txt"
+ats_boards:
+  greenhouse: []
+  lever: []
+  ashby: []
+  smartrecruiters: []
+profile_file: "config/local/profile.local.yaml"
+judge_file: "config/local/judge.local.yaml"

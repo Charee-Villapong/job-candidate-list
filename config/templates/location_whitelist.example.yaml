@@ -1,0 +1,8 @@
+# 勤務地対応表のテンプレート（伏せ字）。
+# 実値（市区町村名）は config/local/location_whitelist.local.yaml
+# （gitignore 対象）にのみ置く。起点の情報は notes にも書かない。
+version: 1
+municipalities:
+  - prefecture: "<都道府県名>"
+    municipality: "<市区町村名>"
+notes: "<範囲の考え方を一般化して記す>"

@@ -19,3 +19,4 @@ output/
 *.local.yaml
 *.local.json
 *.local.csv
+.venv/
