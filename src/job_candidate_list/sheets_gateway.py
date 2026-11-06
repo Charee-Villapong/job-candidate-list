@@ -123,6 +123,32 @@ def _hyperlink(link: LinkCell | None) -> str:
     return f'=HYPERLINK("{url}", "{display}")'
 
 
+def _parse_hyperlink_url(text: str) -> str | None:
+    """=HYPERLINK("url", "text") 数式から実 URL を取り出す。
+
+    数式内の文字列リテラルでは引用符が "" と二重化されて
+    エスケープされるため、それを " に戻しながら読み取る。
+    HYPERLINK 数式でないセルについては None を返す。
+    """
+    stripped = text.strip()
+    match = re.match(r'=HYPERLINK\s*\(\s*"', stripped, re.IGNORECASE)
+    if match is None:
+        return None
+    index = match.end()
+    chars: list[str] = []
+    while index < len(stripped):
+        char = stripped[index]
+        if char == '"':
+            if index + 1 < len(stripped) and stripped[index + 1] == '"':
+                chars.append('"')
+                index += 2
+                continue
+            return "".join(chars)
+        chars.append(char)
+        index += 1
+    return None
+
+
 def _parse_date(value: str) -> dt.date | None:
     if not value:
         return None
@@ -323,20 +349,56 @@ class GoogleApiSheetsBackend:
         return [[str(c) for c in row] for row in values]
 
     def read_links(self, tab_name: str) -> dict[tuple[int, int], str]:
-        # CLI 経路ではリンク式（HYPERLINK）の実 URL を分離取得できないため、
-        # セル文字列側の解釈に委ねる（gateway 側で検証エラーとして扱う）。
-        return {}
+        if self._service is not None and hasattr(self._service, "spreadsheets"):
+            # Google API クライアント経路の従来の振る舞いを変えない。
+            return {}
+        # CLI 経路では FORMULA 形式で読み、=HYPERLINK(...) 数式から
+        # 実 URL を (行, 列) 辞書に復元する。表示形式の読み取り
+        # （read_rows）では表示テキストしか得られないため分離する。
+        params = {
+            "spreadsheetId": self._spreadsheet_id,
+            "range": tab_name,
+            "valueRenderOption": "FORMULA",
+        }
+        data = self._run_cli(
+            [
+                "spreadsheets",
+                "values",
+                "get",
+                "--params",
+                json.dumps(params, ensure_ascii=False),
+            ]
+        )
+        values = data.get("values", []) if isinstance(data, dict) else []
+        links: dict[tuple[int, int], str] = {}
+        for row_index, row in enumerate(values):
+            for col_index, cell in enumerate(row):
+                url = _parse_hyperlink_url(str(cell))
+                if url:
+                    links[(row_index, col_index)] = url
+        return links
 
     def write_rows(self, tab_name: str, rows: Sequence[Sequence[str]]) -> None:
-        for row in rows:
-            self._run_cli(
-                [
-                    "+append",
-                    "--spreadsheet",
-                    self._spreadsheet_id,
-                    "--range",
-                    tab_name,
-                    "--values",
-                    json.dumps([list(row)], ensure_ascii=False),
-                ]
-            )
+        if not rows:
+            return
+        # +append にはタブ（範囲）の指定手段がなく先頭タブへ流れるため、
+        # 範囲を指定できる正規形式を使う。USER_ENTERED により
+        # =HYPERLINK(...) 文字列は数式セルとして保持される。
+        # 複数行は 1 回の append にまとめて欠落なく書く。
+        params = {
+            "spreadsheetId": self._spreadsheet_id,
+            "range": tab_name,
+            "valueInputOption": "USER_ENTERED",
+        }
+        body = {"values": [list(row) for row in rows]}
+        self._run_cli(
+            [
+                "spreadsheets",
+                "values",
+                "append",
+                "--params",
+                json.dumps(params, ensure_ascii=False),
+                "--json",
+                json.dumps(body, ensure_ascii=False),
+            ]
+        )
