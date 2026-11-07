@@ -9,11 +9,25 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from pathlib import Path
 
 
 def split_clauses(text: str) -> list[str]:
     """テキストを「。」と改行で文節に分割し、空白のみの節を除く。"""
     return [c for c in re.split(r"[。\n]", text) if c.strip()]
+
+
+def load_yaml_raw(path: Path) -> object:
+    """YAML ファイルを読み、生の Python オブジェクトを返す低レベル処理。
+
+    例外（ImportError／OSError／YAML 構文エラー）はそのまま送出する。
+    エラーをどう扱うかは呼び出し側ローダの方針に従う（C-062 では
+    方針を統一しない: ConfigError で止める／一部そのまま伝播させる／
+    空として継続する、の現行3通りを各ローダ側で維持する）。
+    """
+    import yaml
+
+    return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
 
 
 def parse_iso_date(value: str) -> dt.date | None:

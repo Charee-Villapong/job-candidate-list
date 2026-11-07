@@ -15,6 +15,7 @@ from .config import LocationConfig
 from .errors import ConfigError
 from .judge_remote import RemoteResult
 from .models import LocationDivision, LocationWhitelist, RawPosting, RemoteDivision
+from .parsing import load_yaml_raw
 
 __all__ = [
     "LocationResult",
@@ -46,12 +47,13 @@ def load_whitelist(path: Path) -> LocationWhitelist:
     path = Path(path)
     if not path.is_file():
         raise ConfigError(f"勤務地対応表が存在しません: {path.name}")
+    # 読込の低レベル処理は parsing.load_yaml_raw に共通化し、エラー方針
+    # （ファイルなし・構文不正は ConfigError、構造不正は from_dict の
+    # 例外がそのまま伝播する現行挙動）は本ローダ側で維持する。
     try:
-        import yaml
+        data = load_yaml_raw(path)
     except ImportError as exc:  # pragma: no cover
         raise ConfigError("YAML 読込ライブラリが利用できません") from exc
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except Exception as exc:
         raise ConfigError(f"勤務地対応表の形式が不正です: {path.name}") from exc
     if not isinstance(data, dict):
