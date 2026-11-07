@@ -19,6 +19,8 @@ duty:
     - "<上流主務を表す文脈付き表現>"
   impl_keywords:
     - "<実装等の主務を表す表現>"
+  # 未実装: 仕様では主務判定の理由へ補助情報として残す定義だが、
+  # その反映は未実装。現行は判定結果・理由に現れない。
   title_assist_keywords:
     - "<職種名の補助キーワード（単独では判定を決定しない）>"
   primary_markers:
@@ -83,6 +85,8 @@ presentation:
 validity:
   listing_valid_days: 14
 collection:
+  # 未実装: 仕様の確定条件（アクセス間隔を設定変数で持つ）だが、間隔の
+  # 執行（待機処理）は未実装。現行は値を変えても取得間隔は変わらない。
   request_interval_sec: 5
   per_source_max_items: 50
   timeout_sec: 30
@@ -90,6 +94,8 @@ guard:
   max_close_ratio: 0.5
   max_total_change_ratio: 1.0
 openwork:
+  # 未実装（予約）: 仕様の確定条件（同一会社への取得は週1回まで）に
+  # 対応する予約で、第2段階で実装する。false の意味は未定義。
   weekly_once_per_company: true
 auto_apply:
   enabled: false

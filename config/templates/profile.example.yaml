@@ -9,7 +9,11 @@ target_role_labels:
 salary_target_jpy: 0
 employment_allowed:
   - "<許可する雇用形態>"
+# 未実装（予約）: 本人が希望頻度を指定した時点で適合条件化する。
+# 現行は値を入れても判定は変わらない。
 remote_preference: null
+# 未実装（予約）: 本人の指定があった場合に勤務地条件をハード除外化する
+# 切替の受け口。現行は true でもハード除外にならない。
 location_hard_exclude: false
 search_queries:
   - "<一般化した検索キーワードの組み合わせ>"
