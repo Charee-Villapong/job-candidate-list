@@ -235,7 +235,7 @@ def validate_config(cfg: AppConfig) -> list[str]: ...
 
 | クラス | フィールド（全てキーワード可） |
 |---|---|
-| `ProfileConfig` | `profile_version: int`, `target_domains: tuple[str, ...]`, `target_role_labels: tuple[str, ...]`, `salary_target_jpy: int`, `employment_allowed: tuple[str, ...]`, `remote_preference: str \| None = None`, `location_condition_enabled: bool = True`, `location_hard_exclude: bool = False`, `search_queries: tuple[str, ...] = ()`, `last_updated: date \| None = None` |
+| `ProfileConfig` | `target_domains: tuple[str, ...]`, `target_role_labels: tuple[str, ...]`, `salary_target_jpy: int`, `employment_allowed: tuple[str, ...]`, `remote_preference: str \| None = None`, `location_hard_exclude: bool = False`, `search_queries: tuple[str, ...] = ()`, `last_updated: date \| None = None` |
 | `NormalizeConfig` | `tracking_params: tuple[str, ...] = ()` |
 | `DutyConfig` | `target_sections: tuple[str, ...]`, `upstream_keywords: tuple[str, ...]`, `impl_keywords: tuple[str, ...]`, `title_assist_keywords: tuple[str, ...] = ()`, `primary_markers: tuple[str, ...] = ()`, `mixed_handling: str = "check"` |
 | `LocationConfig` | `target_sections: tuple[str, ...]`, `whitelist_file: Path \| None = None`（勤務地対応表は別引数で渡すため、本フィールドは実ファイル読込時の参照用。`from_dict` では欠落を許す） |
@@ -952,15 +952,13 @@ class EvaluationResult:
 
 | キー | 型 | 備考（初期値の一般化表現） |
 |---|---|---|
-| `profile_version` | int | スキーマ版数。初期値 1 |
 | `last_updated` | date | プロファイル最終更新日。週次通知に添える材料 |
 | `target_domains` | list[str] | 志向領域のキーワード群（データ／AI 領域を表す一般化キーワード） |
 | `target_role_labels` | list[str] | 対象職種の肩書き例（PM／マネジメント／企画・推進／ディレクター／アーキテクト等）。判定は肩書きではなく主務で行うため、本キーは補助 |
 | `salary_target_jpy` | int | 年収目安（円／年） |
 | `employment_allowed` | list[str] | 許可する雇用形態。初期値は正社員のみ |
-| `remote_preference` | str \| null | リモート希望頻度。初期値は未指定（null）。指定された場合のみ適合条件化する |
-| `location_condition_enabled` | bool | 勤務地条件の適用可否。初期値 true |
-| `location_hard_exclude` | bool | 勤務地条件のハード除外化。初期値 false（本人の指定があった場合のみ true） |
+| `remote_preference` | str \| null | リモート希望頻度。初期値は未指定（null）。未実装（予約）: 希望頻度が指定された時点で適合条件化する。現行は値を入れても判定は変わらない |
+| `location_hard_exclude` | bool | 勤務地条件のハード除外化。初期値 false（本人の指定があった場合のみ true）。未実装（予約）: 現行は true でもハード除外にならない |
 | `search_queries` | list[str] | 収集に使う一般化キーワードの組み合わせ。個人情報・現職の具体名を含めない。実行前に禁止ワードスキャンを通す |
 
 ### 4.2 `judge.local.yaml`（判定設定。構造はテンプレートと同一、値の一部はローカル保持）
@@ -971,7 +969,7 @@ class EvaluationResult:
 | `duty.target_sections` | list[str] | 主務判定の対象セクション名（業務内容／担当業務 等） |
 | `duty.upstream_keywords` | list[str] | 上流主務キーワード群。「設計」は単独語を登録せず文脈付き表現のみ（システム全体の設計／アーキテクチャ設計／全体設計／設計方針の策定／技術選定／標準化 等） |
 | `duty.impl_keywords` | list[str] | 実装主務キーワード群（要件定義後の設計／詳細設計／実装／開発／テスト／運用保守 等を表す表現） |
-| `duty.title_assist_keywords` | list[str] | 職種名の補助キーワード。単独ではハード除外を発火させない |
+| `duty.title_assist_keywords` | list[str] | 職種名の補助キーワード。単独ではハード除外を発火させない。未実装: 仕様では理由へ補助情報として残す定義だが、現行は判定結果・理由に現れない |
 | `duty.primary_markers` | list[str] | 主担当の明示を表す表現（主担当／メイン業務 等） |
 | `duty.mixed_handling` | str | 主務混在時の扱い。初期値 `check`（要確認）。他の値は `ConfigError` |
 | `location.target_sections` | list[str] | 勤務地判定の対象セクション名（勤務地／勤務先／就業場所／アクセス 等） |
@@ -990,12 +988,12 @@ class EvaluationResult:
 | `fitness.domain_match_points` / `fitness.salary_points` / `fitness.condition_points` / `fitness.location_points` | int | 機械的一致度の配点（§6.6） |
 | `presentation.weekly_limit` | int | 提示上限 N。**初期値 20** |
 | `validity.listing_valid_days` | int | 掲載確認の有効日数 |
-| `collection.request_interval_sec` | int | 情報源へのアクセス間隔（人の通常利用と同程度の低頻度） |
+| `collection.request_interval_sec` | int | 情報源へのアクセス間隔（人の通常利用と同程度の低頻度）。未実装: 間隔の執行（待機処理）は未実装で、現行は値を変えても取得間隔は変わらない |
 | `collection.per_source_max_items` | int | 1 情報源・1 回あたりの取得上限（大量巡回防止） |
 | `collection.timeout_sec` | int | 取得タイムアウト。超過時はその情報源をスキップ（リトライしない） |
 | `guard.max_close_ratio` | float | 大量変更ガード: 掲載終了比率の上限。初期値 0.5 |
 | `guard.max_total_change_ratio` | float | 大量変更ガード: 変更合計比率の上限。初期値 1.0 |
-| `openwork.weekly_once_per_company` | bool | 初期値 true（同一会社は週 1 回まで） |
+| `openwork.weekly_once_per_company` | bool | 初期値 true（同一会社は週 1 回まで）。未実装（予約）: 第2段階で実装する。false の意味は未定義 |
 | `auto_apply.enabled` | bool | 自動応募の有効化フラグ。**既定値 false**。第1段階では常に false（スキーマのみ確定）。変更は本人の明示指示によってのみ行う |
 | `auto_apply.weekly_limit` | int | 自動応募の週上限。初期値 3（第3段階用にスキーマのみ確定） |
 | `auto_apply.result_unknown_hold_runs` | int | 結果不明時の応募前控え保持上限（次々回実行時まで = 2。第3段階用） |
