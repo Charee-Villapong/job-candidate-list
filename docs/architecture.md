@@ -235,7 +235,7 @@ def validate_config(cfg: AppConfig) -> list[str]: ...
 
 | クラス | フィールド（全てキーワード可） |
 |---|---|
-| `ProfileConfig` | `target_domains: tuple[str, ...]`, `target_role_labels: tuple[str, ...]`, `salary_target_jpy: int`, `employment_allowed: tuple[str, ...]`, `remote_preference: str \| None = None`, `location_hard_exclude: bool = False`, `search_queries: tuple[str, ...] = ()`, `last_updated: date \| None = None` |
+| `ProfileConfig` | `target_domains: tuple[str, ...]`, `salary_target_jpy: int`, `employment_allowed: tuple[str, ...]`, `remote_preference: str \| None = None`, `location_hard_exclude: bool = False`, `search_queries: tuple[str, ...] = ()`, `last_updated: date \| None = None` |
 | `NormalizeConfig` | `tracking_params: tuple[str, ...] = ()` |
 | `DutyConfig` | `target_sections: tuple[str, ...]`, `upstream_keywords: tuple[str, ...]`, `impl_keywords: tuple[str, ...]`, `title_assist_keywords: tuple[str, ...] = ()`, `primary_markers: tuple[str, ...] = ()`, `mixed_handling: str = "check"` |
 | `LocationConfig` | `target_sections: tuple[str, ...]`, `whitelist_file: Path \| None = None`（勤務地対応表は別引数で渡すため、本フィールドは実ファイル読込時の参照用。`from_dict` では欠落を許す） |
@@ -954,7 +954,6 @@ class EvaluationResult:
 |---|---|---|
 | `last_updated` | date | プロファイル最終更新日。週次通知に添える材料 |
 | `target_domains` | list[str] | 志向領域のキーワード群（データ／AI 領域を表す一般化キーワード） |
-| `target_role_labels` | list[str] | 対象職種の肩書き例（PM／マネジメント／企画・推進／ディレクター／アーキテクト等）。判定は肩書きではなく主務で行うため、本キーは補助 |
 | `salary_target_jpy` | int | 年収目安（円／年） |
 | `employment_allowed` | list[str] | 許可する雇用形態。初期値は正社員のみ |
 | `remote_preference` | str \| null | リモート希望頻度。初期値は未指定（null）。未実装（予約）: 希望頻度が指定された時点で適合条件化する。現行は値を入れても判定は変わらない |
