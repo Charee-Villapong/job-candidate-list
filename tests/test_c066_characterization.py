@@ -1,9 +1,12 @@
 """C-066（JCL-08）特性テスト: 「効かない設定」10件の現行挙動の固定。
 
 処遇表（調査係レポート job-candidate-list-C066-dispositions.md）に基づく。
-前提は「挙動不変」: 削除2件（profile_version /
-location_condition_enabled）と残置8件のどちらについても、収集・判定・
-提示の挙動は現行と同一でなければならない。本ファイルは実装を見ずに、
+前提は「挙動不変」: 削除3件（profile_version /
+location_condition_enabled / target_role_labels）と残置7件のどちらに
+ついても、収集・判定・提示の挙動は現行と同一でなければならない。
+target_role_labels は C-066 残件（本人の決定 2026-11-07）で削除対象に
+追加されたもので、職種の判定は主務判定のみが正であり、この削除で
+挙動は変わらない。本ファイルは実装を見ずに、
 公開インターフェース（evaluate_sample_text / judge_main_duty /
 run_collection / attach_openwork / load_config / AppConfig.from_dicts /
 validate_config）の入出力だけから現行挙動を固定する。
@@ -15,16 +18,19 @@ validate_config）の入出力だけから現行挙動を固定する。
    検証結果だけが変わる現行挙動もあわせて固定する（処遇表の所見どおり、
    検証のみ・収集経路では呼ばれない）。
 2. 設定読込: 同梱テンプレート（config/templates/*.example.yaml）と
-   フィクスチャ設定が読み込め、残置8件の実効値が現行どおりであること。
-3. 後方互換: 削除2件のキーを含む設定はエラーにならず読み込めること。
-   削除実施後の確定挙動では、削除2件は ProfileConfig.from_dict が
+   フィクスチャ設定が読み込め、残置7件の実効値が現行どおりであること。
+   あわせて、テンプレートから target_role_labels キーが消えている
+   ことも固定する。
+3. 後方互換: 削除3件のキーを含む設定はエラーにならず読み込めること。
+   削除実施後の確定挙動では、削除3件は ProfileConfig.from_dict が
    未知キー検査の前に読み捨てる（_REMOVED_PROFILE_KEYS）ため、値は
-   実効値として保持されない（属性自体が無い）。一方、削除2件以外の
+   実効値として保持されない（属性自体が無い）。一方、削除3件以外の
    未知キーに対しては厳格（ConfigError）のままであり、その現状も
    固定する。旧版の本項目が固定していた「値が読み取れる（保持される）」
    という観点は、削除に伴う仕様変更で「読み捨てられる」に変わった
    （詳細は test_removed_profile_keys_are_discarded_for_backward_compat
-   の docstring を参照）。
+   の docstring を参照）。target_role_labels については、キー無しの
+   入力が読み込めることもあわせて固定する。
 
 既存テストとの対応（重複回避）:
 - キーの存在自体は test_config_and_rules.py の REQUIRED_*_KEYS が固定
@@ -69,7 +75,9 @@ def _evaluate(sample_id, cfg, whitelist):
 # 各変種は「もし効いていれば結果が変わるはず」の値を選んでいる:
 # - profile_version: 版数に連動する分岐があれば変わるはずの大きな値
 # - target_role_labels: サンプルの肩書き（プロダクトマネージャー）を
-#   含まないラベル群。ラベル照合があれば落ちるはず
+#   含まないラベル群。ラベル照合があれば落ちるはず。削除済みキーの
+#   ため、現行は読み捨てられることでも結果が変わらないはず
+#   （profile_version / location_condition_enabled と同じ扱い）
 # - employment_allowed: サンプルの雇用形態は「正社員」。許可リストが
 #   効けば ["契約社員"] では除外されるはず
 # - remote_preference: サンプルのリモート原文は「出社週2〜3日」。
@@ -279,11 +287,12 @@ def test_validate_config_still_checks_listing_valid_days_positive(
 
 
 # ---------------------------------------------------------------------------
-# 2. 設定読込の固定: 残置8件の実効値
+# 2. 設定読込の固定: 残置7件の実効値
 # ---------------------------------------------------------------------------
 def test_template_files_load_and_retained_values():
-    """同梱テンプレート3ファイルが load_config で読み込め、残置8件の
-    実効値がテンプレートの現行値どおりであること。"""
+    """同梱テンプレート3ファイルが load_config で読み込め、残置7件の
+    実効値がテンプレートの現行値どおりであること。削除済みの
+    target_role_labels はテンプレートに無く、属性としても存在しない。"""
     load_config = impl("job_candidate_list.config.load_config")
     templates = REPO_ROOT / "config" / "templates"
     cfg = load_config(
@@ -291,8 +300,8 @@ def test_template_files_load_and_retained_values():
         templates / "judge.example.yaml",
         templates / "local.example.yaml",
     )
-    # profile 側（残置4件）
-    assert cfg.profile.target_role_labels == ("<対象職種の肩書き例>",)
+    # profile 側（残置3件）
+    assert not hasattr(cfg.profile, "target_role_labels")
     assert cfg.profile.employment_allowed == ("<許可する雇用形態>",)
     assert cfg.profile.remote_preference is None
     assert cfg.profile.location_hard_exclude is False
@@ -309,15 +318,12 @@ def test_fixture_config_effective_values_for_retained_keys(
     profile_config_dict, judge_config_dict, local_config_dict
 ):
     """フィクスチャ設定を AppConfig.from_dicts で読み込んだときの
-    残置8件の実効値が現行どおりであること（読込経路はテンプレートの
-    ファイル経路と別に、辞書経路でも固定する）。"""
+    残置7件の実効値が現行どおりであること（読込経路はテンプレートの
+    ファイル経路と別に、辞書経路でも固定する）。フィクスチャ入力には
+    target_role_labels が残っているが、削除済みキーのため読み捨てられ、
+    属性としては存在しない。"""
     cfg = build_app_config(profile_config_dict, judge_config_dict, local_config_dict)
-    assert cfg.profile.target_role_labels == (
-        "PM",
-        "マネジメント",
-        "企画・推進",
-        "アーキテクト",
-    )
+    assert not hasattr(cfg.profile, "target_role_labels")
     assert cfg.profile.employment_allowed == ("正社員",)
     assert cfg.profile.remote_preference is None
     assert cfg.profile.location_hard_exclude is False
@@ -337,17 +343,12 @@ def test_fixture_config_effective_values_for_retained_keys(
 def _assert_removed_keys_discarded_and_retained_values(cfg):
     """削除済みキーが保持されず、他のキーの実効値が従来どおりである
     ことの共通検証（辞書経路・YAML 経路の両方から使う）。"""
-    # 削除済み2件は属性自体が無く、実効値として保持されない。
+    # 削除済み3件は属性自体が無く、実効値として保持されない。
     assert not hasattr(cfg.profile, "profile_version")
     assert not hasattr(cfg.profile, "location_condition_enabled")
+    assert not hasattr(cfg.profile, "target_role_labels")
     # 他のキーの実効値は従来どおり（フィクスチャ設定の値）。
     assert cfg.profile.target_domains == ("データ", "AI")
-    assert cfg.profile.target_role_labels == (
-        "PM",
-        "マネジメント",
-        "企画・推進",
-        "アーキテクト",
-    )
     assert cfg.profile.salary_target_jpy == 8_000_000
     assert cfg.profile.employment_allowed == ("正社員",)
     assert cfg.profile.remote_preference is None
@@ -364,27 +365,29 @@ def test_removed_profile_keys_are_discarded_for_backward_compat(
     （test_dict_with_keys_to_be_deleted_loads_without_error）が
     固定していた後方互換の観点のうち:
 
-    - 残る観点（不変）: 削除2件（profile_version /
-      location_condition_enabled）を含む設定はエラーにならず
-      読み込めること（未知キーエラーにならないこと）。本テストでは
-      辞書経路（AppConfig.from_dicts）と YAML 読込経路
-      （load_config）の両方で固定する。
+    - 残る観点（不変）: 削除3件（profile_version /
+      location_condition_enabled / target_role_labels）を含む設定は
+      エラーにならず読み込めること（未知キーエラーにならないこと）。
+      本テストでは辞書経路（AppConfig.from_dicts）と YAML 読込経路
+      （load_config）の両方で固定する。削除3件が揃った入力でも
+      同じく読み捨てられる。
     - 変わった観点（仕様変更）: 旧テストは「値がそのまま読み取れる
       （属性に保持される）」ことまで固定していたが、実施後は
       ProfileConfig に属性自体が無く、値は実効値として保持されない。
-      ProfileConfig.from_dict が削除済み2キーを未知キー検査の前に
+      ProfileConfig.from_dict が削除済み3キーを未知キー検査の前に
       読み捨てる（_REMOVED_PROFILE_KEYS）ためである。
 
     あわせて、削除対象でない他のキーの実効値が従来どおりである
     ことも両経路で固定する。storage は tmp_path のみを使い、
     実運用データには触れない。
     """
-    # フィクスチャの現行値（1 / True）と異なる値を入れる。保持されて
-    # いれば実効値の違いとして観測できる値であり、読み捨てなら
-    # 属性自体が存在しないことだけが観測される。
+    # フィクスチャの現行値（1 / True / PM 等）と異なる値を入れる。
+    # 保持されていれば実効値の違いとして観測できる値であり、
+    # 読み捨てなら属性自体が存在しないことだけが観測される。
     profile = copy.deepcopy(profile_config_dict)
     profile["profile_version"] = 7
     profile["location_condition_enabled"] = False
+    profile["target_role_labels"] = ["全く別の肩書き例"]
 
     # 辞書経路: エラーなく読み込め、削除キーは保持されない。
     cfg = build_app_config(profile, judge_config_dict, local_config_dict)
@@ -409,11 +412,99 @@ def test_removed_profile_keys_are_discarded_for_backward_compat(
     _assert_removed_keys_discarded_and_retained_values(cfg_from_yaml)
 
 
+def test_target_role_labels_present_is_discarded(
+    profile_config_dict, judge_config_dict, local_config_dict
+):
+    """新仕様①③: target_role_labels キーありの入力は、未知キー
+    エラーで落とさず読み捨てられ、読み込んだ設定に属性が無い。
+
+    他の削除済み2件を入力から外し、target_role_labels 単独でも
+    読み捨てられることを、辞書経路（AppConfig.from_dicts）と
+    クラス経路（ProfileConfig.from_dict）の両方で固定する。
+    他のキーの実効値は従来どおりであることもあわせて見る。
+    """
+    profile = copy.deepcopy(profile_config_dict)
+    del profile["profile_version"]
+    del profile["location_condition_enabled"]
+    profile["target_role_labels"] = ["全く別の肩書き例"]
+
+    cfg = build_app_config(profile, judge_config_dict, local_config_dict)
+    assert not hasattr(cfg.profile, "target_role_labels")
+    assert cfg.profile.target_domains == ("データ", "AI")
+    assert cfg.profile.employment_allowed == ("正社員",)
+
+    profile_config = impl("job_candidate_list.config.ProfileConfig")
+    direct = profile_config.from_dict(profile)
+    assert not hasattr(direct, "target_role_labels")
+    assert direct.target_domains == ("データ", "AI")
+
+
+def test_target_role_labels_absent_input_loads_without_error(
+    profile_config_dict, judge_config_dict, local_config_dict
+):
+    """新仕様②③: target_role_labels キー無しの入力は従来どおり
+    読み込め、読み込んだ設定に属性が無い。辞書経路とクラス経路の
+    両方で固定する。"""
+    profile = copy.deepcopy(profile_config_dict)
+    del profile["target_role_labels"]
+
+    cfg = build_app_config(profile, judge_config_dict, local_config_dict)
+    assert not hasattr(cfg.profile, "target_role_labels")
+    assert cfg.profile.target_domains == ("データ", "AI")
+    assert cfg.profile.salary_target_jpy == 8_000_000
+    assert cfg.profile.employment_allowed == ("正社員",)
+
+    profile_config = impl("job_candidate_list.config.ProfileConfig")
+    direct = profile_config.from_dict(profile)
+    assert not hasattr(direct, "target_role_labels")
+    assert direct.target_domains == ("データ", "AI")
+
+
+def test_all_three_removed_profile_keys_are_discarded_together(profile_config_dict):
+    """新仕様④: 削除済み3件（profile_version /
+    location_condition_enabled / target_role_labels）が揃った入力は、
+    クラス経路（ProfileConfig.from_dict）でもまとめて読み捨てられ、
+    いずれの属性も存在しない。上位経路での同観点は
+    test_removed_profile_keys_are_discarded_for_backward_compat が
+    辞書・YAML の両経路で固定する。"""
+    profile = copy.deepcopy(profile_config_dict)
+    profile["profile_version"] = 7
+    profile["location_condition_enabled"] = False
+    profile["target_role_labels"] = ["全く別の肩書き例"]
+
+    profile_config = impl("job_candidate_list.config.ProfileConfig")
+    direct = profile_config.from_dict(profile)
+    assert not hasattr(direct, "profile_version")
+    assert not hasattr(direct, "location_condition_enabled")
+    assert not hasattr(direct, "target_role_labels")
+    assert direct.target_domains == ("データ", "AI")
+    assert direct.employment_allowed == ("正社員",)
+
+
+def test_profile_template_has_no_target_role_labels_key():
+    """新仕様③（テンプレート）: config/templates/profile.example.yaml
+    から target_role_labels キーが消えており、テンプレートを
+    load_config で読み込んだ設定にも属性が無い。"""
+    templates = REPO_ROOT / "config" / "templates"
+    parsed = yaml.safe_load(
+        (templates / "profile.example.yaml").read_text(encoding="utf-8")
+    )
+    assert "target_role_labels" not in parsed
+
+    load_config = impl("job_candidate_list.config.load_config")
+    cfg = load_config(
+        templates / "profile.example.yaml",
+        templates / "judge.example.yaml",
+        templates / "local.example.yaml",
+    )
+    assert not hasattr(cfg.profile, "target_role_labels")
+
+
 def test_unknown_key_in_profile_dict_is_config_error_at_from_dicts(
     profile_config_dict, judge_config_dict, local_config_dict
 ):
     """現行挙動（厳格）: profile 辞書内の未知キーは AppConfig.from_dicts
-    でも ConfigError。例外は削除済み2件のみで、あちらは未知キー検査の
+    でも ConfigError。例外は削除済み3件のみで、あちらは未知キー検査の
     前に読み捨てられる（上記
     test_removed_profile_keys_are_discarded_for_backward_compat が固定）。
     それ以外の未知キーへの寛容さの無さは削除実施後も変わらない。"""

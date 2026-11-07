@@ -207,6 +207,10 @@ def judge_config_dict() -> dict:
 
 @pytest.fixture()
 def profile_config_dict() -> dict:
+    # profile_version / location_condition_enabled / target_role_labels は
+    # 削除済みキー。ProfileConfig の属性ではなく、後方互換の読み捨て
+    # 対象として入力に残す（属性が無いことは
+    # test_c066_characterization.py が固定する）。
     return {
         "profile_version": 1,
         "target_domains": ["データ", "AI"],
