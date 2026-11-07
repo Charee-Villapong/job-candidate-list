@@ -33,7 +33,9 @@ from .normalize import (
     normalize_url,
 )
 
-_FITNESS_RANK = {Fitness.HIGH: 0, Fitness.MEDIUM: 1, Fitness.CHECK: 2}
+# 適合度の提示順位（小さいほど先）。presentation 側のフォールバック
+# ソートも同じ表を使うため、定義はここに一本化する。
+FITNESS_RANK = {Fitness.HIGH: 0, Fitness.MEDIUM: 1, Fitness.CHECK: 2}
 
 
 @dataclass(frozen=True)
@@ -189,7 +191,7 @@ def assign_fitness(
         normalize_url(posting.raw_url),
     )
     presentation_key = (
-        _FITNESS_RANK[fitness],
+        FITNESS_RANK[fitness],
         -score,
         -posting.fetched_on.toordinal(),
         cid,
