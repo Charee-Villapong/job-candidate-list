@@ -79,6 +79,14 @@ class EnglishOutcome(StrEnum):
     NO_MENTION = "no_mention"
 
 
+# リンク表示テキストと勤務地不明表記の正本（C-065）。従来は models／
+# pipeline／openwork／sheets_gateway の複数箇所に同じリテラルが散在し、
+# gateway の欠落時既定値も別に直書きされていたため、ここへ一本化する。
+JOB_PAGE_DISPLAY_TEXT = "求人ページ"
+OPENWORK_DISPLAY_TEXT = "OpenWork"
+UNKNOWN_LOCATION_TEXT = "不明"
+
+
 class Reason(NamedTuple):
     text: str
     rule_ids: tuple[str, ...] = ()
@@ -178,14 +186,14 @@ class CandidateRecord:
     position_norm: str = ""
     employment_type: str = ""
     salary_range_text: str | None = None
-    location_text: str = "不明"
+    location_text: str = UNKNOWN_LOCATION_TEXT
     location_result: LocationDivision = LocationDivision.UNKNOWN
     remote_division: RemoteDivision = RemoteDivision.UNKNOWN
     fitness: Fitness = Fitness.CHECK
     fit_reasons: tuple[Reason, ...] = ()
     check_reasons: tuple[Reason, ...] = ()
     source_type: SourceType = SourceType.PUBLIC
-    source_url: LinkCell = LinkCell("求人ページ", "")
+    source_url: LinkCell = LinkCell(JOB_PAGE_DISPLAY_TEXT, "")
     openwork_score: float | None = None
     openwork_url: LinkCell | None = None
     openwork_fetched_on: dt.date | None = None

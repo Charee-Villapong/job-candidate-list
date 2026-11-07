@@ -14,7 +14,12 @@ from typing import Protocol
 
 from .config import OpenworkConfig
 from .errors import OpenworkBlocked
-from .models import CandidateRecord, LinkCell
+from .models import (
+    OPENWORK_DISPLAY_TEXT,
+    UNKNOWN_LOCATION_TEXT,
+    CandidateRecord,
+    LinkCell,
+)
 
 __all__ = [
     "OpenworkBlocked",
@@ -87,7 +92,7 @@ def _location_compatible(ref: OpenworkCompanyRef, candidate: CandidateRecord) ->
     if not ref.location_text:
         return True
     candidate_location = candidate.location_text
-    if not candidate_location or candidate_location == "不明":
+    if not candidate_location or candidate_location == UNKNOWN_LOCATION_TEXT:
         return True
     return (
         ref.location_text == candidate_location
@@ -127,7 +132,7 @@ def attach_openwork(
     ref = matched[0]
     return OpenworkResult(
         score=ref.score,
-        url=LinkCell("OpenWork", ref.url),
+        url=LinkCell(OPENWORK_DISPLAY_TEXT, ref.url),
         fetched_on=dt.date.today(),
         rule_ids=(),
     )
