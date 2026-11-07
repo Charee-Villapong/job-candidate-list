@@ -25,6 +25,8 @@ from .errors import OpenworkBlocked
 from .evaluate import EvaluationResult, evaluate_posting
 from .judge_location import load_whitelist
 from .models import (
+    JOB_PAGE_DISPLAY_TEXT,
+    UNKNOWN_LOCATION_TEXT,
     CandidateRecord,
     CandidateStatus,
     ExclusionRow,
@@ -219,7 +221,7 @@ def _build_exclusion_row(
         position=posting.position_raw,
         employment_type=posting.employment_raw,
         source_type=posting.source_type,
-        source_url=LinkCell("求人ページ", posting.raw_url),
+        source_url=LinkCell(JOB_PAGE_DISPLAY_TEXT, posting.raw_url),
         reason=reason_text,
         rule_ids=tuple(dict.fromkeys(hit.rule_id for hit in result.exclusions)),
         config_refs=tuple(dict.fromkeys(hit.config_ref for hit in result.exclusions)),
@@ -275,7 +277,7 @@ class _OpenworkResolver:
                 candidate_id=record_id,
                 company=posting.company_raw,
                 company_norm=company_norm,
-                location_text=posting.location_raw or "不明",
+                location_text=posting.location_raw or UNKNOWN_LOCATION_TEXT,
             )
             try:
                 ow = attach_openwork(
@@ -316,14 +318,14 @@ def _build_candidate_record(
         position_norm=position_norm,
         employment_type=posting.employment_raw or "",
         salary_range_text=posting.salary_raw,
-        location_text=posting.location_raw or "不明",
+        location_text=posting.location_raw or UNKNOWN_LOCATION_TEXT,
         location_result=result.location.division,
         remote_division=result.remote.division,
         fitness=fitness_result.fitness,
         fit_reasons=fitness_result.fit_reasons,
         check_reasons=fitness_result.check_reasons,
         source_type=posting.source_type,
-        source_url=LinkCell("求人ページ", posting.raw_url),
+        source_url=LinkCell(JOB_PAGE_DISPLAY_TEXT, posting.raw_url),
         openwork_score=ow_score,
         openwork_url=ow_url,
         openwork_fetched_on=ow_on,

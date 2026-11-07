@@ -35,6 +35,18 @@ from ..registry import SourceEntry
 # 実値ファイルは gitignore 対象で、無ければ対応なしとして扱う。
 DEFAULT_COMPANY_NAMES_PATH = Path("config/local/company_names.local.yaml")
 
+# HTTP 取得の既定値（C-065）。従来は fetch_json とアダプタ側に同じ値が
+# 個別に直書きされていた。実行時のタイムアウトは設定側
+# （collection.timeout_sec）が正本で、呼び出し側がそちらを渡す。
+# ここは引数省略時の既定値としてのみ使う。
+DEFAULT_TIMEOUT_SEC = 30
+USER_AGENT = "job-candidate-list/0.1"
+
+# 年収抽出の調整値（C-065）。値は従来の直書きと完全に同一。
+SALARY_CONTEXT_WINDOW_CHARS = 60  # 「年収」の近傍として切り取る文字数
+MIN_SALARY_JPY = 100_000  # ¥表記を年収とみなす下限額（円）
+JPY_PER_MAN_YEN = 10_000  # 万円 → 円の換算係数
+
 
 class SourceAdapter(Protocol):
     def fetch(self, source: SourceEntry) -> list[RawPosting]:
@@ -42,10 +54,8 @@ class SourceAdapter(Protocol):
         ...
 
 
-def fetch_json(url: str, timeout_sec: int = 30) -> object:
-    request = urllib.request.Request(
-        url, headers={"User-Agent": "job-candidate-list/0.1"}
-    )
+def fetch_json(url: str, timeout_sec: int = DEFAULT_TIMEOUT_SEC) -> object:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=timeout_sec) as response:
             body = response.read().decode("utf-8")
@@ -89,7 +99,7 @@ class AtsBoardAdapter:
     def __init__(
         self,
         boards: tuple[str, ...],
-        timeout_sec: int = 30,
+        timeout_sec: int = DEFAULT_TIMEOUT_SEC,
         company_names: Mapping[str, str] | None = None,
     ) -> None:
         self._boards = boards
@@ -182,7 +192,7 @@ _YEN_SINGLE_RE = re.compile(r"[¥￥]\s*(\d[\d,]+)")
 
 
 def _to_man_yen(value: str) -> int:
-    return int(float(value.replace(",", "")) * 10000)
+    return int(float(value.replace(",", "")) * JPY_PER_MAN_YEN)
 
 
 def _salary_from_match_range(low: int, high: int, raw: str) -> tuple[int, int, str]:
@@ -200,7 +210,9 @@ def extract_jpy_salary(text: str | None) -> tuple[int, int, str] | None:
         return None
     windows: list[str] = []
     for match in re.finditer("年収", text):
-        windows.append(text[match.start() : match.start() + 60])
+        windows.append(
+            text[match.start() : match.start() + SALARY_CONTEXT_WINDOW_CHARS]
+        )
     for window in [*windows, text]:
         found = _MANEN_RANGE_RE.search(window)
         if found:
@@ -213,7 +225,7 @@ def extract_jpy_salary(text: str | None) -> tuple[int, int, str] | None:
         if found:
             low = int(found.group(1).replace(",", ""))
             high = int(found.group(2).replace(",", ""))
-            if low >= 100000 and high >= 100000:
+            if low >= MIN_SALARY_JPY and high >= MIN_SALARY_JPY:
                 return _salary_from_match_range(low, high, found.group(0))
         found = _MANEN_SINGLE_RE.search(window)
         if found:
@@ -222,16 +234,16 @@ def extract_jpy_salary(text: str | None) -> tuple[int, int, str] | None:
         found = _YEN_SINGLE_RE.search(window)
         if found:
             value = int(found.group(1).replace(",", ""))
-            if value >= 100000:
+            if value >= MIN_SALARY_JPY:
                 return (value, value, found.group(0).strip())
     return None
 
 
 def format_salary_raw(salary_min_jpy: int, salary_max_jpy: int) -> str:
     """年収レンジの表示テキスト（万円で割り切れる場合は万円表記）。"""
-    if salary_min_jpy % 10000 == 0 and salary_max_jpy % 10000 == 0:
-        low = salary_min_jpy // 10000
-        high = salary_max_jpy // 10000
+    if salary_min_jpy % JPY_PER_MAN_YEN == 0 and salary_max_jpy % JPY_PER_MAN_YEN == 0:
+        low = salary_min_jpy // JPY_PER_MAN_YEN
+        high = salary_max_jpy // JPY_PER_MAN_YEN
         if low == high:
             return f"{low:,}万円"
         return f"{low:,}万円〜{high:,}万円"

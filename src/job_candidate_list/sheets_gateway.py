@@ -28,10 +28,17 @@ from typing import Mapping, Protocol, Sequence
 
 from .config import SheetNamesConfig
 from .models import (
+    JOB_PAGE_DISPLAY_TEXT,
+    OPENWORK_DISPLAY_TEXT,
+    UNKNOWN_LOCATION_TEXT,
+    ApplyStatus,
     CandidateRecord,
+    CandidateStatus,
     ExclusionRow,
+    Fitness,
     LinkCell,
     LocationDivision,
+    Presentation,
     Reason,
     RemoteDivision,
     SourceType,
@@ -235,23 +242,25 @@ def _row_to_record(
         position=cell("ポジション名"),
         employment_type=cell("雇用形態"),
         salary_range_text=cell("想定年収レンジ") or None,
-        location_text=cell("勤務地") or "不明",
-        location_result=cell("勤務地判定結果") or "勤務地判定不能",
-        remote_division=cell("リモート頻度") or "不明",
-        fitness=cell("適合度") or "要確認",
+        location_text=cell("勤務地") or UNKNOWN_LOCATION_TEXT,
+        location_result=cell("勤務地判定結果") or str(LocationDivision.UNKNOWN),
+        remote_division=cell("リモート頻度") or str(RemoteDivision.UNKNOWN),
+        fitness=cell("適合度") or str(Fitness.CHECK),
         fit_reasons=_parse_reasons(cell("適合理由")),
         check_reasons=_parse_reasons(cell("要確認理由")),
         source_type=_SOURCE_TYPE_FROM_DISPLAY.get(
             cell("情報源種別"), SourceType.PUBLIC
         ),
-        source_url=link_cell("情報源URL", "求人ページ"),
+        source_url=link_cell("情報源URL", JOB_PAGE_DISPLAY_TEXT),
         openwork_score=float(score_text) if score_text else None,
-        openwork_url=(link_cell("OpenWork URL", "OpenWork") if ow_url_text else None),
+        openwork_url=(
+            link_cell("OpenWork URL", OPENWORK_DISPLAY_TEXT) if ow_url_text else None
+        ),
         openwork_fetched_on=parse_iso_date(cell("OpenWork点数取得日")),
-        presentation=cell("提示区分") or "控え",
+        presentation=cell("提示区分") or str(Presentation.HELD),
         confirmed_on=parse_iso_date(cell("掲載確認日")),
-        status=cell("状態") or "新規",
-        apply_status=cell("応募状態") or "未応募",
+        status=cell("状態") or str(CandidateStatus.NEW),
+        apply_status=cell("応募状態") or str(ApplyStatus.NOT_APPLIED),
         apply_result=cell("応募結果") or None,
     )
 

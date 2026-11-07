@@ -22,13 +22,21 @@ from .sources.green_manual import GreenManualAdapter
 
 _DEFAULT_CONFIG_DIR = Path("config/local")
 
+# 設定ファイル名（実値ファイルの名前はこの3種で固定。C-065）。
+PROFILE_CONFIG_FILENAME = "profile.local.yaml"
+JUDGE_CONFIG_FILENAME = "judge.local.yaml"
+LOCAL_CONFIG_FILENAME = "local.local.yaml"
+
+# 候補リスト（Spreadsheet）の URL の組み立て基部（C-065）。
+SPREADSHEET_URL_BASE = "https://docs.google.com/spreadsheets/d/"
+
 
 def _load(args: argparse.Namespace):
     base = Path(args.config_dir)
     return load_config(
-        base / "profile.local.yaml",
-        base / "judge.local.yaml",
-        base / "local.local.yaml",
+        base / PROFILE_CONFIG_FILENAME,
+        base / JUDGE_CONFIG_FILENAME,
+        base / LOCAL_CONFIG_FILENAME,
     )
 
 
@@ -96,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
         None,
         dry_run=args.command == "dry-run",
     )
-    list_url = "https://docs.google.com/spreadsheets/d/" f"{cfg.local.spreadsheet_id}"
+    list_url = f"{SPREADSHEET_URL_BASE}{cfg.local.spreadsheet_id}"
     print(build_notification_text(summary, list_url))
     return 0
 
