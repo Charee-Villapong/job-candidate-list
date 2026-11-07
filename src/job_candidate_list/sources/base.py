@@ -28,6 +28,7 @@ from typing import Mapping, Protocol
 
 from ..errors import SourceFetchError
 from ..models import RawPosting, SourceType
+from ..parsing import load_yaml_raw
 from ..registry import SourceEntry
 
 # ボード識別子 → 正式な会社名の対応表（実値）の既定の置き場。
@@ -69,12 +70,11 @@ def load_company_names(
     target = Path(path) if path is not None else DEFAULT_COMPANY_NAMES_PATH
     if not target.is_file():
         return {}
+    # 読込の低レベル処理は parsing.load_yaml_raw に共通化し、エラー方針
+    # （読めない・壊れている場合は全て空 dict で継続するフェイル
+    # オープン）は本ローダ側で維持する。
     try:
-        import yaml
-    except ImportError:
-        return {}
-    try:
-        data = yaml.safe_load(target.read_text(encoding="utf-8"))
+        data = load_yaml_raw(target)
     except Exception:
         return {}
     if not isinstance(data, Mapping):

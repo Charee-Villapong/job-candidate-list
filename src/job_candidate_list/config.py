@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .errors import ConfigError
+from .parsing import load_yaml_raw
 
 _REMOTE_DIVISIONS = (
     "フルリモート（出社なし）",
@@ -651,16 +652,14 @@ class AppConfig:
 
 
 def _load_yaml(path: Path) -> Mapping[str, Any]:
+    # 読込の低レベル処理は parsing.load_yaml_raw に共通化し、エラー方針
+    # （全て ConfigError に寄せるフェイルクローズ）は本ローダ側で維持する。
     try:
-        import yaml
+        data = load_yaml_raw(path)
     except ImportError as exc:  # pragma: no cover
         raise ConfigError("YAML 読込ライブラリが利用できません") from exc
-    try:
-        text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise ConfigError(f"設定ファイルが読み取れません: {path.name}") from exc
-    try:
-        data = yaml.safe_load(text)
     except Exception as exc:
         raise ConfigError(f"設定ファイルの形式が不正です: {path.name}") from exc
     if data is None:
