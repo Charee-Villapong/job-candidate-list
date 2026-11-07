@@ -15,7 +15,8 @@ C-063 候補 ID 一本化／C-067 sheets_gateway 分離）の安全網であり�
  3. green_manual（手動専用アダプタ）
  4. sheets_gateway のサービス経路（C-067 の前提）― 従来テストゼロ
  5. config.py の from_dict 異常系のクラス横断固定（C-061 の前提）
- 6. C-063: 候補 ID の再計算方法の不一致（現行の食い違いをそのまま固定）
+ 6. C-063: 候補 ID の計算方法の統一（C-068 で食い違いを固定→
+    C-063 の本人決定で設定側に統一→本ファイルで一致を固定）
  7. cli.py の入口（validate-config の終了コード・出力、argparse の挙動）
 
 外部ネットワークには接続しない（fetch_json／urlopen／subprocess は
@@ -1204,15 +1205,23 @@ def test_from_dicts_backfills_fitness_from_profile(
 
 
 # ---------------------------------------------------------------------------
-# 6. C-063: 候補 ID の再計算方法の不一致（現行挙動の固定）
+# 6. C-063: 候補 ID の計算方法の統一（確定挙動の固定）
 # ---------------------------------------------------------------------------
-def test_candidate_id_diverges_between_record_and_presentation_key(
+def test_candidate_id_unified_between_record_and_presentation_key(
     profile_config_dict, judge_config_dict
 ):
-    """現行挙動（候補5）: 設定の tracking_params で追加したパラメータは
-    レコードの candidate_id では除去されるが、提示順キーが埋め込む ID は
-    既定の除去リストで再計算されるため、両 ID が食い違う。
-    C-063 で一本化されたら、このテストは意図的に落ちて検知する。"""
+    """確定挙動（C-063 で統一）: 設定の tracking_params で追加した
+    パラメータは、レコードの candidate_id でも提示順キーに埋め込まれる
+    ID でも同じく除去され、両 ID が一致する。
+
+    経緯: C-068 では当初、提示順キー側が既定の除去リストで再計算する
+    ため両 ID が食い違う現行挙動を固定していた（旧テスト名
+    test_candidate_id_diverges_between_record_and_presentation_key）。
+    その後 C-063 の本人決定で「設定を使う側に統一（提示順キーも
+    設定の tracking_params で計算する）」となり、旧テストは意図的に
+    落ちて検知した。本更新では同じ構成（tracking_params =
+    ["utm_source", "session"]）のまま assert を一致側に切り替え、
+    統一後の確定挙動を固定する。"""
     judge = copy.deepcopy(judge_config_dict)
     judge["normalize"]["tracking_params"] = ["utm_source", "session"]
     posting = build_raw_posting(
@@ -1226,7 +1235,7 @@ def test_candidate_id_diverges_between_record_and_presentation_key(
     assert summary.added_ids == (record.candidate_id,)
     assert record.presentation_key is not None
     embedded_id = record.presentation_key[3]
-    assert embedded_id != record.candidate_id  # 現行の食い違い
+    assert embedded_id == record.candidate_id  # C-063 で統一された一致
 
 
 def test_candidate_id_agrees_when_no_custom_tracking_param(
