@@ -522,10 +522,17 @@ class SheetNamesConfig:
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SheetNamesConfig":
         _check_unknown(data, {"candidates", "registry", "exclusions"}, "sheet_names")
+        # 既定値はフィールド定義（クラス既定値）に一本化し、ここでは
+        # 参照するだけにする（リテラルの二重管理を避ける）。
+        defaults = cls()
         return cls(
-            candidates=_as_str(data.get("candidates", "候補リスト"), "candidates"),
-            registry=_as_str(data.get("registry", "情報源レジストリ"), "registry"),
-            exclusions=_as_str(data.get("exclusions", "除外ログ"), "exclusions"),
+            candidates=_as_str(
+                data.get("candidates", defaults.candidates), "candidates"
+            ),
+            registry=_as_str(data.get("registry", defaults.registry), "registry"),
+            exclusions=_as_str(
+                data.get("exclusions", defaults.exclusions), "exclusions"
+            ),
         )
 
 

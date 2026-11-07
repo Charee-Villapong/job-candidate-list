@@ -12,6 +12,7 @@ import re
 import subprocess
 from typing import Mapping, Protocol, Sequence
 
+from .config import SheetNamesConfig
 from .models import (
     CandidateRecord,
     ExclusionRow,
@@ -60,10 +61,12 @@ AUTO_COLUMNS_CANDIDATE: tuple[str, ...] = (
 
 MANUAL_COLUMNS_CANDIDATE: tuple[str, ...] = ("本人の判断", "本人のメモ")
 
+# シート名の既定値は設定側 SheetNamesConfig の既定値に一本化し、
+# ここではそれを引いて dict 化するだけにする。
 _DEFAULT_SHEET_NAMES = {
-    "candidates": "候補リスト",
-    "registry": "情報源レジストリ",
-    "exclusions": "除外ログ",
+    "candidates": SheetNamesConfig().candidates,
+    "registry": SheetNamesConfig().registry,
+    "exclusions": SheetNamesConfig().exclusions,
 }
 
 _SOURCE_TYPE_DISPLAY = {
