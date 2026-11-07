@@ -13,7 +13,10 @@ validate_config）の入出力だけから現行挙動を固定する。
 
 固定する観点:
 1. 設定の無効性: 対象10件の値を変えても判定・収集の出力が同一である
-   こと。例外として、employment_allowed（空チェック）と
+   こと。ただし employment_allowed は C-144（本人の決定 2026-11-07）で
+   配線されたため本スイートの対象外とし、挙動は
+   test_c144_characterization.py で固定する（本ファイルでは
+   validate_config の空チェックのみ残す）。例外として、
    validity.listing_valid_days（1以上チェック）は validate_config の
    検証結果だけが変わる現行挙動もあわせて固定する（処遇表の所見どおり、
    検証のみ・収集経路では呼ばれない）。
@@ -78,8 +81,8 @@ def _evaluate(sample_id, cfg, whitelist):
 #   含まないラベル群。ラベル照合があれば落ちるはず。削除済みキーの
 #   ため、現行は読み捨てられることでも結果が変わらないはず
 #   （profile_version / location_condition_enabled と同じ扱い）
-# - employment_allowed: サンプルの雇用形態は「正社員」。許可リストが
-#   効けば ["契約社員"] では除外されるはず
+# - employment_allowed: C-144（本人の決定 2026-11-07）で配線されたため
+#   本スイートの対象外（挙動は test_c144_characterization.py で固定）
 # - remote_preference: サンプルのリモート原文は「出社週2〜3日」。
 #   希望との適合条件化があれば適合度が変わるはず
 # - location_condition_enabled: False で勤務地条件が外れるはず
@@ -88,7 +91,6 @@ def _evaluate(sample_id, cfg, whitelist):
 _PROFILE_VARIANTS = [
     ("profile_version", 999),
     ("target_role_labels", ["全く別の肩書き例"]),
-    ("employment_allowed", ["契約社員"]),
     ("remote_preference", "フルリモート希望"),
     ("location_condition_enabled", False),
     ("location_hard_exclude", True),
@@ -261,7 +263,8 @@ def test_validate_config_still_checks_employment_allowed_nonempty(
     profile_config_dict, judge_config_dict
 ):
     """現行挙動: employment_allowed は空だと validate_config が問題を
-    返すが、値そのもの（何を許可するか）は検証・判定に影響しない。"""
+    返す（空チェックのみ。本キーによる判定への影響は C-144 で配線済みの
+    ため本スイートの対象外とし、test_c144_characterization.py で固定）。"""
     validate = impl("job_candidate_list.config.validate_config")
 
     empty_profile = copy.deepcopy(profile_config_dict)
