@@ -193,9 +193,14 @@ def _build_from_dict(
     return cls(**kwargs)
 
 
+# C-066（JCL-08）で削除した profile のキー。既存のローカル設定に
+# 残っている場合に未知キーエラーで落とさないよう、読込時に読み捨てる
+# （後方互換。値そのものはどこからも参照しない）。
+_REMOVED_PROFILE_KEYS = frozenset({"profile_version"})
+
+
 @dataclass(frozen=True)
 class ProfileConfig:
-    profile_version: int
     target_domains: tuple[str, ...]
     target_role_labels: tuple[str, ...]
     salary_target_jpy: int
@@ -208,6 +213,12 @@ class ProfileConfig:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ProfileConfig":
+        # 削除済みキーは未知キー検査の前に落とす（_REMOVED_PROFILE_KEYS）。
+        data = {
+            key: value
+            for key, value in data.items()
+            if key not in _REMOVED_PROFILE_KEYS
+        }
         # remote_preference は従来どおり他の必須キーより先に変換する。
         return _build_from_dict(
             cls,
@@ -215,7 +226,6 @@ class ProfileConfig:
             "profile",
             {
                 "remote_preference": _as_opt_str,
-                "profile_version": _as_int,
                 "target_domains": _as_str_tuple,
                 "target_role_labels": _as_str_tuple,
                 "salary_target_jpy": _as_int,

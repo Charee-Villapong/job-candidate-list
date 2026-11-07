@@ -1,7 +1,6 @@
 # 志向プロファイルのテンプレート（伏せ字）。
 # 実値は config/local/profile.local.yaml（gitignore 対象）に置く。
 # 本人の指示以外ではプロファイルを書き換えない。
-profile_version: 1
 last_updated: null
 target_domains:
   - "<対象領域を表す一般化キーワード>"
