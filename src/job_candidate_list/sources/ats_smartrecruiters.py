@@ -7,56 +7,50 @@
 
 from __future__ import annotations
 
-from typing import Mapping
-
 from ..models import SourceType
 from ..registry import SourceEntry
-from .base import fetch_json, make_posting, resolve_company_name
+from .base import (
+    AtsBoardAdapter,
+    fetch_json,
+    make_posting,
+    mapping_jobs,
+    resolve_company_name,
+)
 
 
-class SmartRecruitersAdapter:
-    def __init__(
-        self,
-        boards: tuple[str, ...],
-        timeout_sec: int = 30,
-        company_names: Mapping[str, str] | None = None,
-    ) -> None:
-        self._boards = boards
-        self._timeout = timeout_sec
-        self._company_names = company_names
+def _board_url(board: str) -> str:
+    return f"https://api.smartrecruiters.com/v1/companies/{board}/postings"
 
+
+class SmartRecruitersAdapter(AtsBoardAdapter):
     def fetch(self, source: SourceEntry) -> list:
         postings = []
-        for board in self._boards:
-            data = fetch_json(
-                f"https://api.smartrecruiters.com/v1/companies/{board}/postings",
-                self._timeout,
+        for board, job in self._iter_board_jobs(
+            fetch_json, _board_url, mapping_jobs("content")
+        ):
+            location = job.get("location") or {}
+            location_text = ", ".join(
+                str(location[key])
+                for key in ("city", "region", "country")
+                if location.get(key)
             )
-            content = data.get("content", []) if isinstance(data, dict) else []
-            for job in content:
-                location = job.get("location") or {}
-                location_text = ", ".join(
-                    str(location[key])
-                    for key in ("city", "region", "country")
-                    if location.get(key)
+            employment = job.get("typeOfEmployment")
+            if isinstance(employment, dict):
+                employment = employment.get("label") or employment.get("id")
+            postings.append(
+                make_posting(
+                    source,
+                    SourceType.PUBLIC,
+                    f"https://jobs.smartrecruiters.com/{board}/{job.get('id', '')}",
+                    resolve_company_name(
+                        board,
+                        self._company_names,
+                        api_company_name=(job.get("company") or {}).get("name"),
+                    ),
+                    str(job.get("name", "")),
+                    "",
+                    location_text or None,
+                    str(employment) if employment else None,
                 )
-                employment = job.get("typeOfEmployment")
-                if isinstance(employment, dict):
-                    employment = employment.get("label") or employment.get("id")
-                postings.append(
-                    make_posting(
-                        source,
-                        SourceType.PUBLIC,
-                        f"https://jobs.smartrecruiters.com/{board}/{job.get('id', '')}",
-                        resolve_company_name(
-                            board,
-                            self._company_names,
-                            api_company_name=(job.get("company") or {}).get("name"),
-                        ),
-                        str(job.get("name", "")),
-                        "",
-                        location_text or None,
-                        str(employment) if employment else None,
-                    )
-                )
+            )
         return postings

@@ -8,16 +8,17 @@
 
 from __future__ import annotations
 
-from typing import Mapping
-
 from ..models import SourceType
 from ..registry import SourceEntry
 from .base import (
+    AtsBoardAdapter,
     extract_jpy_salary,
     fetch_json,
     html_to_text,
     make_posting,
+    mapping_jobs,
     resolve_company_name,
+    unpack_salary,
 )
 
 
@@ -33,50 +34,38 @@ def _metadata_value(job: dict, name: str) -> str | None:
     return None
 
 
-class GreenhouseAdapter:
-    def __init__(
-        self,
-        boards: tuple[str, ...],
-        timeout_sec: int = 30,
-        company_names: Mapping[str, str] | None = None,
-    ) -> None:
-        self._boards = boards
-        self._timeout = timeout_sec
-        self._company_names = company_names
+def _board_url(board: str) -> str:
+    return f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs" "?content=true"
 
+
+class GreenhouseAdapter(AtsBoardAdapter):
     def fetch(self, source: SourceEntry) -> list:
         postings = []
-        for board in self._boards:
-            data = fetch_json(
-                f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs"
-                "?content=true",
-                self._timeout,
+        for board, job in self._iter_board_jobs(
+            fetch_json, _board_url, mapping_jobs("jobs")
+        ):
+            description = html_to_text(str(job.get("content", "") or ""))
+            salary_min, salary_max, salary_raw = unpack_salary(
+                extract_jpy_salary(description)
             )
-            jobs = data.get("jobs", []) if isinstance(data, dict) else []
-            for job in jobs:
-                description = html_to_text(str(job.get("content", "") or ""))
-                salary = extract_jpy_salary(description)
-                salary_min = salary_max = salary_raw = None
-                if salary is not None:
-                    salary_min, salary_max, salary_raw = salary
-                postings.append(
-                    make_posting(
-                        source,
-                        SourceType.PUBLIC,
-                        str(job.get("absolute_url", "")),
-                        resolve_company_name(
-                            board,
-                            self._company_names,
-                            api_company_name=job.get("company_name"),
-                        ),
-                        str(job.get("title", "")),
-                        description,
-                        (job.get("location") or {}).get("name"),
-                        _metadata_value(job, "Employment Type"),
-                        salary_min_jpy=salary_min,
-                        salary_max_jpy=salary_max,
-                        salary_raw=salary_raw,
-                        remote_raw=description or None,
-                    )
+            postings.append(
+                make_posting(
+                    source,
+                    SourceType.PUBLIC,
+                    str(job.get("absolute_url", "")),
+                    resolve_company_name(
+                        board,
+                        self._company_names,
+                        api_company_name=job.get("company_name"),
+                    ),
+                    str(job.get("title", "")),
+                    description,
+                    (job.get("location") or {}).get("name"),
+                    _metadata_value(job, "Employment Type"),
+                    salary_min_jpy=salary_min,
+                    salary_max_jpy=salary_max,
+                    salary_raw=salary_raw,
+                    remote_raw=description or None,
                 )
+            )
         return postings

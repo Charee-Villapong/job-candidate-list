@@ -13,91 +13,80 @@
 
 from __future__ import annotations
 
-from typing import Mapping
-
 from ..models import SourceType
 from ..registry import SourceEntry
 from .base import (
+    AtsBoardAdapter,
     extract_jpy_salary,
     fetch_json,
     format_salary_raw,
     html_to_text,
+    list_jobs,
     make_posting,
     resolve_company_name,
+    unpack_salary,
 )
 
 
-class LeverAdapter:
-    def __init__(
-        self,
-        boards: tuple[str, ...],
-        timeout_sec: int = 30,
-        company_names: Mapping[str, str] | None = None,
-    ) -> None:
-        self._boards = boards
-        self._timeout = timeout_sec
-        self._company_names = company_names
+def _board_url(board: str) -> str:
+    return f"https://api.lever.co/v0/postings/{board}?mode=json"
 
+
+class LeverAdapter(AtsBoardAdapter):
     def fetch(self, source: SourceEntry) -> list:
         postings = []
-        for board in self._boards:
-            data = fetch_json(
-                f"https://api.lever.co/v0/postings/{board}?mode=json",
-                self._timeout,
-            )
-            jobs = data if isinstance(data, list) else []
-            for job in jobs:
-                categories = job.get("categories") or {}
-                body = str(job.get("descriptionPlain", "") or "")
-                extra_sections: dict[str, str] = {}
-                list_texts: list[str] = []
-                for item in job.get("lists") or []:
-                    if not isinstance(item, dict):
-                        continue
-                    label = str(item.get("text", "") or "").strip()
-                    content = html_to_text(str(item.get("content", "") or ""))
-                    if not content:
-                        continue
-                    list_texts.append(content)
-                    if label:
-                        extra_sections[label] = content
-                # 追加情報（additionalPlain）は判定に渡さない（docstring 参照）。
-                full_text = "\n".join(part for part in [body, *list_texts] if part)
-                salary_min = salary_max = salary_raw = None
-                salary_range = job.get("salaryRange") or {}
-                if salary_range.get("currency") == "JPY" and isinstance(
-                    salary_range.get("min"), (int, float)
-                ):
-                    salary_min = int(salary_range["min"])
-                    salary_max = (
-                        int(salary_range["max"])
-                        if isinstance(salary_range.get("max"), (int, float))
-                        else salary_min
-                    )
-                    salary_raw = format_salary_raw(salary_min, salary_max)
-                else:
-                    salary = extract_jpy_salary(full_text)
-                    if salary is not None:
-                        salary_min, salary_max, salary_raw = salary
-                workplace = job.get("workplaceType")
-                remote_raw = full_text
-                if workplace:
-                    remote_raw = f"{full_text}\nworkplaceType: {workplace}"
-                postings.append(
-                    make_posting(
-                        source,
-                        SourceType.PUBLIC,
-                        str(job.get("hostedUrl", "")),
-                        resolve_company_name(board, self._company_names),
-                        str(job.get("text", "")),
-                        full_text,
-                        categories.get("location"),
-                        categories.get("commitment"),
-                        salary_min_jpy=salary_min,
-                        salary_max_jpy=salary_max,
-                        salary_raw=salary_raw,
-                        remote_raw=remote_raw or None,
-                        extra_sections=extra_sections,
-                    )
+        for board, job in self._iter_board_jobs(fetch_json, _board_url, list_jobs):
+            categories = job.get("categories") or {}
+            body = str(job.get("descriptionPlain", "") or "")
+            extra_sections: dict[str, str] = {}
+            list_texts: list[str] = []
+            for item in job.get("lists") or []:
+                if not isinstance(item, dict):
+                    continue
+                label = str(item.get("text", "") or "").strip()
+                content = html_to_text(str(item.get("content", "") or ""))
+                if not content:
+                    continue
+                list_texts.append(content)
+                if label:
+                    extra_sections[label] = content
+            # 追加情報（additionalPlain）は判定に渡さない（docstring 参照）。
+            full_text = "\n".join(part for part in [body, *list_texts] if part)
+            salary_min = salary_max = salary_raw = None
+            salary_range = job.get("salaryRange") or {}
+            if salary_range.get("currency") == "JPY" and isinstance(
+                salary_range.get("min"), (int, float)
+            ):
+                salary_min = int(salary_range["min"])
+                salary_max = (
+                    int(salary_range["max"])
+                    if isinstance(salary_range.get("max"), (int, float))
+                    else salary_min
                 )
+                salary_raw = format_salary_raw(salary_min, salary_max)
+            else:
+                salary_min, salary_max, salary_raw = unpack_salary(
+                    extract_jpy_salary(full_text)
+                )
+            workplace = job.get("workplaceType")
+            remote_raw = full_text
+            if workplace:
+                remote_raw = f"{full_text}\nworkplaceType: {workplace}"
+            postings.append(
+                make_posting(
+                    source,
+                    SourceType.PUBLIC,
+                    str(job.get("hostedUrl", "")),
+                    resolve_company_name(board, self._company_names),
+                    str(job.get("text", "")),
+                    full_text,
+                    categories.get("location"),
+                    categories.get("commitment"),
+                    salary_min_jpy=salary_min,
+                    salary_max_jpy=salary_max,
+                    salary_raw=salary_raw,
+                    remote_raw=remote_raw or None,
+                    extra_sections=extra_sections,
+                )
+            )
         return postings

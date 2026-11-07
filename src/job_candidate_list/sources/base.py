@@ -24,7 +24,7 @@ import re
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Mapping, Protocol
+from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol
 
 from ..errors import SourceFetchError
 from ..models import RawPosting, SourceType
@@ -55,6 +55,57 @@ def fetch_json(url: str, timeout_sec: int = 30) -> object:
         return json.loads(body)
     except json.JSONDecodeError as exc:
         raise SourceFetchError("取得結果の形式が不正です: JSON") from exc
+
+
+def mapping_jobs(key: str) -> Callable[[object], Any]:
+    """dict 形式ペイロードから ``key`` の求人リストを取り出す関数を返す。
+
+    ペイロードが dict でない場合は空リストとする。キーの値が None の
+    場合はそのまま返し、反復時に TypeError が伝播する現行挙動を保つ。
+    """
+
+    def extract(data: object) -> Any:
+        if isinstance(data, Mapping):
+            return data.get(key, [])
+        return []
+
+    return extract
+
+
+def list_jobs(data: object) -> Any:
+    """list 形式ペイロードをそのまま求人リストとして返す（他は空）。"""
+    return data if isinstance(data, list) else []
+
+
+class AtsBoardAdapter:
+    """ATS アダプタ 4 本共通の骨格（ボード走査 → fetch_json → 求人反復）。
+
+    ``fetch_json`` は本モジュールのものを直接は使わず、各アダプタの
+    モジュール名前空間にあるものを引数で受け取る（テストがアダプタ
+    モジュール側の名前を差し替えて取得を切り分けられるようにするため）。
+    求人 1 件ごとの変換（make_posting の引数組み立て）は各アダプタ側に残す。
+    """
+
+    def __init__(
+        self,
+        boards: tuple[str, ...],
+        timeout_sec: int = 30,
+        company_names: Mapping[str, str] | None = None,
+    ) -> None:
+        self._boards = boards
+        self._timeout = timeout_sec
+        self._company_names = company_names
+
+    def _iter_board_jobs(
+        self,
+        fetch_json_fn: Callable[[str, int], object],
+        board_url: Callable[[str], str],
+        payload_jobs: Callable[[object], Iterable[Any]],
+    ) -> Iterator[tuple[str, Any]]:
+        for board in self._boards:
+            data = fetch_json_fn(board_url(board), self._timeout)
+            for job in payload_jobs(data):
+                yield board, job
 
 
 def load_company_names(
@@ -185,6 +236,15 @@ def format_salary_raw(salary_min_jpy: int, salary_max_jpy: int) -> str:
             return f"{low:,}万円"
         return f"{low:,}万円〜{high:,}万円"
     return f"{salary_min_jpy:,}円〜{salary_max_jpy:,}円"
+
+
+def unpack_salary(
+    salary: tuple[int, int, str] | None,
+) -> tuple[int | None, int | None, str | None]:
+    """年収の三つ組を (min, max, raw) に展開する。抽出なしは全て None。"""
+    if salary is None:
+        return None, None, None
+    return salary
 
 
 def make_posting(
