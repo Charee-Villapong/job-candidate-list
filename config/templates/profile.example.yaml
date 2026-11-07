@@ -4,8 +4,6 @@
 last_updated: null
 target_domains:
   - "<対象領域を表す一般化キーワード>"
-target_role_labels:
-  - "<対象職種の肩書き例>"
 salary_target_jpy: 0
 employment_allowed:
   - "<許可する雇用形態>"
