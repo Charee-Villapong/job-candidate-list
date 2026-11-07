@@ -14,6 +14,7 @@ from .judge_english import EnglishResult
 from .judge_hard import (
     is_clear_business_form,
     matched_business_form_keywords,
+    searchable_text,
 )
 from .judge_location import LocationResult
 from .judge_remote import RemoteResult
@@ -145,15 +146,7 @@ def assign_fitness(
 
     # 機械的一致度（§6.6）。
     score = 0
-    searchable = "\n".join(
-        part
-        for part in (
-            posting.position_raw,
-            posting.company_overview_raw,
-            *posting.sections.values(),
-        )
-        if part
-    )
+    searchable = searchable_text(posting)
     if cfg.target_domains and any(d in searchable for d in cfg.target_domains):
         score += cfg.domain_match_points
     if salary_known:

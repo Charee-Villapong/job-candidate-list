@@ -30,11 +30,12 @@ class ExclusionHit(NamedTuple):
     config_ref: str
 
 
-def matched_business_form_keywords(
-    posting: RawPosting, cfg: HardConfig
-) -> tuple[str, ...]:
-    """会社概要等の公開情報に一致した事業形態キーワードを返す。"""
-    text = "\n".join(
+def overview_text(posting: RawPosting) -> str:
+    """会社概要系テキスト（原文＋会社概要セクション）の組み立て。
+
+    事業形態の判定対象はこの範囲に限る（業務内容セクションは含めない）。
+    """
+    return "\n".join(
         part
         for part in (
             posting.company_overview_raw,
@@ -42,6 +43,26 @@ def matched_business_form_keywords(
         )
         if part
     )
+
+
+def searchable_text(posting: RawPosting) -> str:
+    """求人全体の検索対象テキスト（ポジション名＋会社概要原文＋全セクション）。"""
+    return "\n".join(
+        part
+        for part in (
+            posting.position_raw,
+            posting.company_overview_raw,
+            *posting.sections.values(),
+        )
+        if part
+    )
+
+
+def matched_business_form_keywords(
+    posting: RawPosting, cfg: HardConfig
+) -> tuple[str, ...]:
+    """会社概要等の公開情報に一致した事業形態キーワードを返す。"""
+    text = overview_text(posting)
     return tuple(kw for kw in cfg.business_form_keywords if kw in text)
 
 
@@ -67,15 +88,7 @@ def judge_hard_exclusions(posting: RawPosting, cfg: HardConfig) -> list[Exclusio
                 )
             )
     # 領域外: 対象領域の語が無く、領域外キーワードに一致する場合のみ。
-    searchable = "\n".join(
-        part
-        for part in (
-            posting.position_raw,
-            posting.company_overview_raw,
-            *posting.sections.values(),
-        )
-        if part
-    )
+    searchable = searchable_text(posting)
     has_domain = any(word in searchable for word in _TARGET_DOMAIN_WORDS)
     if not has_domain and any(kw in searchable for kw in cfg.out_of_domain_keywords):
         hits.append(
