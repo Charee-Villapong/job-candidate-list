@@ -3,7 +3,7 @@
 根拠: docs/引き継ぎ.md「既知の課題 M-1」、architecture.md §3.11／§10.1、
 追補 A5。本ファイルは実装（sheets_gateway.py）を読まず、公開仕様だけから書く。
 
-対象は `GoogleApiSheetsBackend(service=None, ...)` の CLI 経路
+対象は `GoogleApiSheetsBackend(spreadsheet_id)` の CLI 経路
 （cli.py の `_gateway` が使う形。実 Sheets アクセスは
 `/opt/hatch/bin/hatch_gws_cli sheets ...` を subprocess で呼ぶ）。
 
@@ -389,8 +389,8 @@ def cli_env(monkeypatch):
     """フェイク CLI を差し替えた (backend, gateway, fake) を返す。"""
     fake = _install_fake(monkeypatch)
     gw = impl("job_candidate_list.sheets_gateway")
-    # service=None が CLI 経路（cli.py の _gateway と同じ渡し方）
-    backend = gw.GoogleApiSheetsBackend(None, SPREADSHEET_ID)
+    # spreadsheet_id のみが CLI 経路（cli.py の _gateway と同じ渡し方）
+    backend = gw.GoogleApiSheetsBackend(SPREADSHEET_ID)
     gateway = gw.GoogleSheetsGateway(backend)
     return backend, gateway, fake
 
@@ -538,7 +538,7 @@ def test_read_links_via_cli_returns_real_urls(monkeypatch):
     tabs[TAB_CANDIDATES] = [header, row]
     _install_fake(monkeypatch, tabs)
 
-    backend = gw.GoogleApiSheetsBackend(None, SPREADSHEET_ID)
+    backend = gw.GoogleApiSheetsBackend(SPREADSHEET_ID)
 
     # 表示読みではリンク先は見えず、表示テキストのみが返る
     displayed = backend.read_rows(TAB_CANDIDATES)

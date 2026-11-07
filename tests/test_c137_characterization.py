@@ -52,8 +52,8 @@ CLI_PATH = "/opt/hatch/bin/hatch_gws_cli"
 def _make_backend_gateway(monkeypatch, initial_tabs=None):
     fake = _install_fake(monkeypatch, initial_tabs)
     gw = impl("job_candidate_list.sheets_gateway")
-    # 本番生成形（cli.py の _gateway と同じく service=None）
-    backend = gw.GoogleApiSheetsBackend(None, SPREADSHEET_ID)
+    # 本番生成形（cli.py の _gateway と同じく spreadsheet_id のみ）
+    backend = gw.GoogleApiSheetsBackend(SPREADSHEET_ID)
     gateway = gw.GoogleSheetsGateway(backend)
     return backend, gateway, fake
 
@@ -323,8 +323,8 @@ def test_cli_append_exclusions_serializes_row_as_single_append(monkeypatch):
 # ---------------------------------------------------------------------------
 # 3. バックエンド確定後の形（本番生成形で全て CLI 経路で完結すること）
 # ---------------------------------------------------------------------------
-def test_none_backend_full_flow_completes_entirely_via_cli(monkeypatch):
-    """本番生成形（service=None）で、読取・リンク読取・候補読取・
+def test_backend_full_flow_completes_entirely_via_cli(monkeypatch):
+    """唯一の生成形（spreadsheet_id のみ）で、読取・リンク読取・候補読取・
     書込・レジストリ読取の一連が、すべて hatch_gws_cli の呼び出し
     だけで完結し、その種別と対象タブの並びが現行どおりであること。
 
