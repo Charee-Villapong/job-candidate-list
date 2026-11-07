@@ -57,6 +57,16 @@ def _auto_signature(record: CandidateRecord) -> tuple:
     return tuple(values)
 
 
+def has_auto_diff(new: CandidateRecord, old: CandidateRecord) -> bool:
+    """自動列の署名が異なるか（「更新あり」判定の唯一の入口）。
+
+    比較対象外は _NON_AUTO_FIELDS（人手列スナップショットと提示順の
+    内部キー）。compute_diff の更新判定と pipeline の状態付けは
+    どちらもこの述語を通し、判定方法を二重管理しない。
+    """
+    return _auto_signature(new) != _auto_signature(old)
+
+
 def _registry_changes(
     old_registry: Registry | None, new_registry: Registry | None
 ) -> tuple[tuple[str, ...], bool]:
@@ -99,8 +109,7 @@ def compute_diff(
     updated = tuple(
         c.candidate_id
         for c in new
-        if c.candidate_id in old_by_id
-        and _auto_signature(c) != _auto_signature(old_by_id[c.candidate_id])
+        if c.candidate_id in old_by_id and has_auto_diff(c, old_by_id[c.candidate_id])
     )
     presented_planned = tuple(
         c.candidate_id
