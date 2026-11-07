@@ -33,6 +33,22 @@ _REQUIRED_HEADERS = ("会社名", "ポジション名", "雇用形態", "情報�
 _SALARY_RE = re.compile(r"(\d+(?:\.\d+)?)万円")
 
 
+def _parse_salary_range_jpy(salary_raw: str) -> tuple[int | None, int | None]:
+    """年収表記中の「万円」を円へ換算し、(最小, 最大) を返す。
+
+    該当が1件だけなら最小＝最大、無ければ (None, None)。
+    逆順表記でも小さい方を最小に正規化する（追補 A1.1）。
+    アダプタ側（sources/）の年収抽出とは正規表現自体が異なる別系統
+    であり、そちらは C-062 の対象外として統合しない。
+    """
+    amounts = [int(float(v) * 10000) for v in _SALARY_RE.findall(salary_raw)]
+    if len(amounts) >= 2:
+        return min(amounts), max(amounts)
+    if len(amounts) == 1:
+        return amounts[0], amounts[0]
+    return None, None
+
+
 class EvaluationKind(StrEnum):
     HARD = "hard"
     CHECK = "check"
@@ -92,11 +108,7 @@ def parse_sample_text(text: str, *, fetched_on: dt.date | None = None) -> RawPos
     salary_min: int | None = None
     salary_max: int | None = None
     if salary_raw:
-        amounts = [int(float(v) * 10000) for v in _SALARY_RE.findall(salary_raw)]
-        if len(amounts) >= 2:
-            salary_min, salary_max = min(amounts), max(amounts)
-        elif len(amounts) == 1:
-            salary_min = salary_max = amounts[0]
+        salary_min, salary_max = _parse_salary_range_jpy(salary_raw)
 
     remote_raw: str | None = headers.get("リモート頻度（原文）")
     if remote_raw is not None and remote_raw.startswith("記載なし"):
