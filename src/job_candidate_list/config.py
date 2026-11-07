@@ -196,7 +196,7 @@ def _build_from_dict(
 # C-066（JCL-08）で削除した profile のキー。既存のローカル設定に
 # 残っている場合に未知キーエラーで落とさないよう、読込時に読み捨てる
 # （後方互換。値そのものはどこからも参照しない）。
-_REMOVED_PROFILE_KEYS = frozenset({"profile_version"})
+_REMOVED_PROFILE_KEYS = frozenset({"profile_version", "location_condition_enabled"})
 
 
 @dataclass(frozen=True)
@@ -206,7 +206,6 @@ class ProfileConfig:
     salary_target_jpy: int
     employment_allowed: tuple[str, ...]
     remote_preference: str | None = None
-    location_condition_enabled: bool = True
     location_hard_exclude: bool = False
     search_queries: tuple[str, ...] = ()
     last_updated: dt.date | None = None
@@ -230,7 +229,6 @@ class ProfileConfig:
                 "target_role_labels": _as_str_tuple,
                 "salary_target_jpy": _as_int,
                 "employment_allowed": _as_str_tuple,
-                "location_condition_enabled": _as_bool,
                 "location_hard_exclude": _as_bool,
                 "search_queries": _as_str_tuple,
                 "last_updated": _as_date,
