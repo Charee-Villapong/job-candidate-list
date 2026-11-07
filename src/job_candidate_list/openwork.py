@@ -53,19 +53,34 @@ class OpenworkProvider(Protocol):
         ...
 
 
-def _failure(rule_id: str, previous: OpenworkResult | None) -> OpenworkResult:
-    if previous is not None and (
+def _has_previous_value(previous: OpenworkResult | None) -> bool:
+    """前回値（点数・URL・取得日のいずれか）が保持されているか。"""
+    return previous is not None and (
         previous.score is not None
         or previous.url is not None
         or previous.fetched_on is not None
-    ):
-        return OpenworkResult(
-            score=previous.score,
-            url=previous.url,
-            fetched_on=previous.fetched_on,
-            rule_ids=(rule_id,),
-        )
+    )
+
+
+def _carried_result(previous: OpenworkResult, rule_id: str) -> OpenworkResult:
+    """前回値をそのまま引き継ぎ、ルール ID だけを差し替えた結果を作る。"""
+    return OpenworkResult(
+        score=previous.score,
+        url=previous.url,
+        fetched_on=previous.fetched_on,
+        rule_ids=(rule_id,),
+    )
+
+
+def _empty_result(rule_id: str) -> OpenworkResult:
     return OpenworkResult(score=None, url=None, fetched_on=None, rule_ids=(rule_id,))
+
+
+def _failure(rule_id: str, previous: OpenworkResult | None) -> OpenworkResult:
+    if _has_previous_value(previous):
+        assert previous is not None
+        return _carried_result(previous, rule_id)
+    return _empty_result(rule_id)
 
 
 def _location_compatible(ref: OpenworkCompanyRef, candidate: CandidateRecord) -> bool:
@@ -89,20 +104,10 @@ def attach_openwork(
     previous: OpenworkResult | None = None,
 ) -> OpenworkResult:
     if not gate_enabled:
-        if previous is not None and (
-            previous.score is not None
-            or previous.url is not None
-            or previous.fetched_on is not None
-        ):
-            return OpenworkResult(
-                score=previous.score,
-                url=previous.url,
-                fetched_on=previous.fetched_on,
-                rule_ids=("OW-DISABLED",),
-            )
-        return OpenworkResult(
-            score=None, url=None, fetched_on=None, rule_ids=("OW-DISABLED",)
-        )
+        if _has_previous_value(previous):
+            assert previous is not None
+            return _carried_result(previous, "OW-DISABLED")
+        return _empty_result("OW-DISABLED")
     try:
         refs = provider.search_company(candidate.company_norm)
     except OpenworkBlocked:
