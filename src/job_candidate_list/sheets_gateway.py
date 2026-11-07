@@ -7,7 +7,6 @@ URL 列は表示テキスト付きリンク（HYPERLINK 形式）で記録し、
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import re
 import subprocess
@@ -22,6 +21,7 @@ from .models import (
     RemoteDivision,
     SourceType,
 )
+from .parsing import parse_iso_date
 
 __all__ = [
     "AUTO_COLUMNS_CANDIDATE",
@@ -149,15 +149,6 @@ def _parse_hyperlink_url(text: str) -> str | None:
     return None
 
 
-def _parse_date(value: str) -> dt.date | None:
-    if not value:
-        return None
-    try:
-        return dt.date.fromisoformat(value.strip())
-    except ValueError:
-        return None
-
-
 def _record_to_row(record: CandidateRecord) -> list[str]:
     return [
         record.candidate_id,
@@ -229,9 +220,9 @@ def _row_to_record(
         source_url=link_cell("情報源URL", "求人ページ"),
         openwork_score=float(score_text) if score_text else None,
         openwork_url=(link_cell("OpenWork URL", "OpenWork") if ow_url_text else None),
-        openwork_fetched_on=_parse_date(cell("OpenWork点数取得日")),
+        openwork_fetched_on=parse_iso_date(cell("OpenWork点数取得日")),
         presentation=cell("提示区分") or "控え",
-        confirmed_on=_parse_date(cell("掲載確認日")),
+        confirmed_on=parse_iso_date(cell("掲載確認日")),
         status=cell("状態") or "新規",
         apply_status=cell("応募状態") or "未応募",
         apply_result=cell("応募結果") or None,

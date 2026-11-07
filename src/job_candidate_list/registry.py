@@ -15,6 +15,7 @@ from enum import StrEnum
 from typing import Sequence
 
 from .errors import RegistrySchemaError
+from .parsing import parse_iso_date
 
 OPENWORK_SOURCE_ID = "OpenWork"
 
@@ -125,13 +126,6 @@ class RegistryIssue:
             object.__setattr__(self, "kind", IssueKind(self.kind))
 
 
-def _parse_date(value: str) -> dt.date | None:
-    try:
-        return dt.date.fromisoformat(value.strip())
-    except ValueError:
-        return None
-
-
 def _parse_measured(text: str) -> MeasuredResult | None:
     fields: dict[str, str] = {}
     for part in text.split(";"):
@@ -141,7 +135,7 @@ def _parse_measured(text: str) -> MeasuredResult | None:
         fields[key.strip()] = value.strip()
     if not {"結果", "取得方法", "確認日"} <= set(fields):
         return None
-    checked = _parse_date(fields["確認日"])
+    checked = parse_iso_date(fields["確認日"])
     if checked is None:
         return None
     return MeasuredResult(
@@ -155,7 +149,7 @@ def _parse_risk(text: str) -> RiskAssessment | None:
     )
     if not match:
         return None
-    checked = _parse_date(match.group(3))
+    checked = parse_iso_date(match.group(3))
     if checked is None:
         return None
     return RiskAssessment(
