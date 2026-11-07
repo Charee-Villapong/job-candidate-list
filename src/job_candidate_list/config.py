@@ -205,7 +205,11 @@ class ProfileConfig:
     target_role_labels: tuple[str, ...]
     salary_target_jpy: int
     employment_allowed: tuple[str, ...]
+    # 未実装（予約）: 希望頻度が指定された場合のみ適合条件化する。
+    # 現行は値を入れても判定は変わらない。
     remote_preference: str | None = None
+    # 未実装（予約）: 本人指定時に勤務地条件のハード除外化を実装する
+    # 切替の受け口。現行は True でもハード除外にならない。
     location_hard_exclude: bool = False
     search_queries: tuple[str, ...] = ()
     last_updated: dt.date | None = None
@@ -252,6 +256,8 @@ class DutyConfig:
     target_sections: tuple[str, ...]
     upstream_keywords: tuple[str, ...]
     impl_keywords: tuple[str, ...]
+    # 未実装: 仕様では主務判定の理由へ補助情報として残す定義だが、
+    # その反映は未実装（現行は判定結果・理由に現れない）。
     title_assist_keywords: tuple[str, ...] = ()
     primary_markers: tuple[str, ...] = ()
     mixed_handling: str = "check"
@@ -421,6 +427,8 @@ class ValidityConfig:
 
 @dataclass(frozen=True)
 class CollectionConfig:
+    # 未実装: 仕様の確定条件だが、間隔の執行（待機処理）は未実装。
+    # 現行は値を変えても取得間隔は変わらない。
     request_interval_sec: int
     per_source_max_items: int
     timeout_sec: int
@@ -459,6 +467,8 @@ class GuardConfig:
 
 @dataclass(frozen=True)
 class OpenworkConfig:
+    # 未実装（予約）: 仕様の確定条件（同一会社は週1回まで）に対応する
+    # 予約で、第2段階で実装する。False の意味は未定義。
     weekly_once_per_company: bool = True
 
     @classmethod
