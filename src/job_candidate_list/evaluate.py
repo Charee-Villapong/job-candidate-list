@@ -170,6 +170,7 @@ def evaluate_posting(
             english,
             cfg.fitness,
             tracking_params=cfg.normalize.tracking_params,
+            employment_allowed=cfg.profile.employment_allowed,
         )
 
     ordered: list[str] = []

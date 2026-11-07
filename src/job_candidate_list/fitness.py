@@ -79,6 +79,7 @@ def assign_fitness(
     english: EnglishResult,
     cfg: FitnessConfig,
     tracking_params: tuple[str, ...] | None = None,
+    employment_allowed: tuple[str, ...] | None = None,
 ) -> FitnessResult:
     fit_reasons: list[Reason] = []
     check_reasons: list[Reason] = []
@@ -145,6 +146,30 @@ def assign_fitness(
     if _is_bizform_ambiguous(posting, cfg.business_form_weak_keywords):
         needs_check = True
         check_reasons.append(Reason("事業形態が判断できない", ("BIZFORM-UNKNOWN",)))
+    # 7. 雇用形態（肯定形リストによる確認。C-144）
+    # employment_allowed が None の直接呼出しではゲート無効とし、従来
+    # 挙動を保つ。許可形態に一致した場合は fit reason を追加しない
+    # （リモート判定の既存の扱いに倣う）。否定形キーワードに一致する
+    # 明示形態は judge_hard 側で先にハード除外済みであり、本関数には
+    # 渡らない（評価順序は変えない）。
+    if employment_allowed is not None:
+        employment_raw = posting.employment_raw
+        if employment_raw is None or not employment_raw.strip():
+            needs_check = True
+            check_reasons.append(
+                Reason(
+                    "雇用形態が未記載のため確認が必要",
+                    ("EMPTYPE-UNKNOWN",),
+                )
+            )
+        elif not any(form and form in employment_raw for form in employment_allowed):
+            needs_check = True
+            check_reasons.append(
+                Reason(
+                    "雇用形態が許可する雇用形態に含まれないため確認が必要",
+                    ("EMPTYPE-NOT-ALLOWED",),
+                )
+            )
 
     # 機械的一致度（§6.6）。
     score = 0
@@ -167,7 +192,7 @@ def assign_fitness(
     if location.division == LocationDivision.FIT:
         score += cfg.location_points
 
-    # 7. 高／中の付与は上流主務の場合のみ。
+    # 8. 高／中の付与は上流主務の場合のみ。
     if needs_check or duty.outcome != DutyOutcome.UPSTREAM:
         fitness = Fitness.CHECK
     elif score >= cfg.high_threshold:
