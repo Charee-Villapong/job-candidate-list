@@ -109,8 +109,7 @@ def _assert_passes_without_employment_check(result):
     # 雇用形態が理由で要確認になっていないこと（要確認理由の文面に
     # 雇用形態が現れない）
     assert all(
-        "雇用形態" not in reason.text
-        for reason in result.fitness_result.check_reasons
+        "雇用形態" not in reason.text for reason in result.fitness_result.check_reasons
     )
 
 
@@ -127,8 +126,7 @@ def _assert_check_for_employment(result):
     assert "HARD-EMPTYPE" not in result.rule_ids
     # 要確認の理由が雇用形態であることが理由文に残っていること
     assert any(
-        "雇用形態" in reason.text
-        for reason in result.fitness_result.check_reasons
+        "雇用形態" in reason.text for reason in result.fitness_result.check_reasons
     ), (
         "要確認理由に雇用形態への言及が無い: "
         f"{result.fitness_result.check_reasons!r}"
