@@ -3,6 +3,12 @@
 RunSummary は件数と候補 ID・情報源名のみを持ち、会社名・年収等の
 詳細は含めない。段ごとの失敗時の扱いは §12 に従う（推測で埋めない、
 リトライしない、止めるべき段で止めて要確認に倒す）。
+
+`run_collection` は統括のみを行い、段ごとの処理は以下の部品に分ける:
+収集（`_collect_postings`）、レコード構築（`_build_records` と
+`_build_candidate_record`／`_build_exclusion_row`）、OpenWork 付与の
+段内状態（`_OpenworkResolver`）、提示振り分け（`_apply_presentation`）、
+書込（`_persist_results`）。
 """
 
 from __future__ import annotations
@@ -10,13 +16,13 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 from dataclasses import dataclass, replace
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from .banned_words import assert_no_banned_words, load_banned_words
-from .config import AppConfig
-from .diff_guard import GuardStatus, compute_diff, mass_change_guard
+from .config import AppConfig, OpenworkConfig
+from .diff_guard import GuardStatus, compute_diff, has_auto_diff, mass_change_guard
 from .errors import OpenworkBlocked
-from .evaluate import evaluate_posting
+from .evaluate import EvaluationResult, evaluate_posting
 from .judge_location import load_whitelist
 from .models import (
     CandidateRecord,
@@ -26,6 +32,7 @@ from .models import (
     LinkCell,
     LocationWhitelist,
     Presentation,
+    RawPosting,
 )
 from .normalize import (
     candidate_id,
@@ -36,7 +43,13 @@ from .normalize import (
 )
 from .openwork import OpenworkProvider, OpenworkResult, attach_openwork
 from .presentation import split_presentation
-from .registry import is_collectable, openwork_gate, parse_registry, validate_registry
+from .registry import (
+    Registry,
+    is_collectable,
+    openwork_gate,
+    parse_registry,
+    validate_registry,
+)
 from .sheets_gateway import SheetsGateway
 from .sources.base import SourceAdapter
 
@@ -94,7 +107,7 @@ def build_notification_text(summary: RunSummary, list_url: str) -> str:
     return "\n".join(lines)
 
 
-def _exclusion_id(posting, cfg: AppConfig) -> str:
+def _exclusion_id(posting: RawPosting, cfg: AppConfig) -> str:
     key = fallback_match_key(
         normalize_company(posting.company_raw),
         normalize_position(posting.position_raw),
@@ -127,35 +140,39 @@ def _check_counts(records: list[CandidateRecord]) -> tuple[tuple[str, int], ...]
     return tuple((name, n) for name, n in counts.items() if n > 0)
 
 
-def run_collection(
-    cfg: AppConfig,
-    gateway: SheetsGateway,
-    adapters: Mapping[str, SourceAdapter],
-    openwork_provider: OpenworkProvider | None,
-    dry_run: bool,
-) -> RunSummary:
-    run_on = dt.date.today()
-    # 手順2: レジストリ読取・検証（全体停止条件は例外として送出する）。
-    registry = parse_registry(gateway.read_registry_rows())
-    validate_registry(registry)
-    existing = list(gateway.read_candidates())
-
-    # 勤務地対応表（設定が無ければ空の対応表で判定不能側に倒す）。
+def _load_whitelist(cfg: AppConfig) -> LocationWhitelist:
+    """勤務地対応表を読む（設定が無ければ空の対応表で判定不能側に倒す）。"""
     if cfg.location.whitelist_file is not None:
-        whitelist = load_whitelist(cfg.location.whitelist_file)
-    else:
-        whitelist = LocationWhitelist(version=1, municipalities=())
+        return load_whitelist(cfg.location.whitelist_file)
+    return LocationWhitelist(version=1, municipalities=())
 
-    # 手順4: 禁止ワードスキャン（設定がある場合のみ。ファイルが無ければ
-    # load_banned_words が ConfigError を送出し、スキャン省略で続行しない）。
+
+def _check_banned_words(cfg: AppConfig) -> None:
+    """禁止ワードスキャン（手順4。設定がある場合のみ）。
+
+    ファイルが無ければ load_banned_words が ConfigError を送出し、
+    スキャン省略で続行しない。
+    """
     if cfg.local.banned_words_file is not None:
         words = load_banned_words(cfg.local.banned_words_file)
         assert_no_banned_words(list(cfg.profile.search_queries), words)
 
+
+def _collect_postings(
+    cfg: AppConfig,
+    registry: Registry,
+    adapters: Mapping[str, SourceAdapter],
+) -> tuple[list[RawPosting], tuple[str, ...], tuple[str, ...]]:
+    """収集対象の情報源ごとに取得する（手順5）。
+
+    取得エラー時はその情報源をスキップし、リトライしない。情報源
+    ごとの上限件数で切り、候補 ID で重複を除く。
+    戻り値は (求人一覧, 収集した情報源名, スキップした情報源名)。
+    """
     collectable = [s for s in registry.sources if is_collectable(s)]
     source_names = tuple(s.source_id for s in collectable if s.source_id in adapters)
     skipped: list[str] = []
-    postings = []
+    postings: list[RawPosting] = []
     seen_keys: set[str] = set()
     for source in collectable:
         adapter = adapters.get(source.source_id)
@@ -176,63 +193,68 @@ def run_collection(
                 continue
             seen_keys.add(dedupe_key)
             postings.append(posting)
+    return postings, source_names, tuple(skipped)
 
-    existing_by_id = {c.candidate_id: c for c in existing}
-    existing_by_fallback = {
+
+def _index_existing(
+    existing: Sequence[CandidateRecord],
+) -> tuple[dict[str, CandidateRecord], dict[str, CandidateRecord]]:
+    """既存候補を候補 ID と突合キー（会社名＋ポジション名）の両方で引けるようにする。"""
+    by_id = {c.candidate_id: c for c in existing}
+    by_fallback = {
         fallback_match_key(c.company_norm, c.position_norm): c for c in existing
     }
+    return by_id, by_fallback
 
-    gate = openwork_gate(registry) and openwork_provider is not None
-    openwork_blocked = False
-    openwork_disabled_count = 0
 
-    current: list[CandidateRecord] = []
-    exclusion_rows: list[ExclusionRow] = []
-    excluded_ids: list[str] = []
-    matched_existing_ids: set[str] = set()
+def _build_exclusion_row(
+    posting: RawPosting, cfg: AppConfig, result: EvaluationResult
+) -> ExclusionRow:
+    """ハード除外ヒットから除外ログ行を組み立てる。"""
+    reason_text = "／".join(hit.reason for hit in result.exclusions)
+    return ExclusionRow(
+        exclusion_id=_exclusion_id(posting, cfg),
+        fetched_on=posting.fetched_on,
+        company=posting.company_raw,
+        position=posting.position_raw,
+        employment_type=posting.employment_raw,
+        source_type=posting.source_type,
+        source_url=LinkCell("求人ページ", posting.raw_url),
+        reason=reason_text,
+        rule_ids=tuple(dict.fromkeys(hit.rule_id for hit in result.exclusions)),
+        config_refs=tuple(dict.fromkeys(hit.config_ref for hit in result.exclusions)),
+    )
 
-    for posting in postings:
-        result = evaluate_posting(posting, cfg, whitelist)
-        company_norm = normalize_company(posting.company_raw)
-        position_norm = normalize_position(posting.position_raw)
-        url_norm = normalize_url(posting.raw_url, cfg.normalize.tracking_params)
-        new_id = candidate_id(company_norm, position_norm, url_norm)
-        if result.hard_excluded:
-            excl_id = _exclusion_id(posting, cfg)
-            excluded_ids.append(excl_id)
-            reason_text = "／".join(hit.reason for hit in result.exclusions)
-            exclusion_rows.append(
-                ExclusionRow(
-                    exclusion_id=excl_id,
-                    fetched_on=posting.fetched_on,
-                    company=posting.company_raw,
-                    position=posting.position_raw,
-                    employment_type=posting.employment_raw,
-                    source_type=posting.source_type,
-                    source_url=LinkCell("求人ページ", posting.raw_url),
-                    reason=reason_text,
-                    rule_ids=tuple(
-                        dict.fromkeys(hit.rule_id for hit in result.exclusions)
-                    ),
-                    config_refs=tuple(
-                        dict.fromkeys(hit.config_ref for hit in result.exclusions)
-                    ),
-                )
-            )
-            continue
 
-        fitness_result = result.fitness_result
-        assert fitness_result is not None  # ハード除外でない場合は必ず存在
-        old = existing_by_id.get(new_id)
-        if old is None:
-            old = existing_by_fallback.get(
-                fallback_match_key(company_norm, position_norm)
-            )
-        record_id = old.candidate_id if old is not None else new_id
-        if old is not None:
-            matched_existing_ids.add(old.candidate_id)
+class _OpenworkResolver:
+    """OpenWork 付与の段内状態（ゲート・遮断・無効件数）を束ねる。
 
-        # OpenWork 付与（ゲート無効時は取得を試みず空欄）。
+    ゲート無効時は取得を試みず候補ごとに無効件数を数え、一度
+    OpenworkBlocked が起きたら以降の候補では取得を試みない。
+    取得できない場合は既存候補の前回値をそのまま保持する。
+    """
+
+    def __init__(
+        self,
+        *,
+        gate_enabled: bool,
+        provider: OpenworkProvider | None,
+        cfg: OpenworkConfig,
+    ) -> None:
+        self._gate_enabled = gate_enabled
+        self._provider = provider
+        self._cfg = cfg
+        self._blocked = False
+        self.disabled_count = 0
+
+    def resolve(
+        self,
+        posting: RawPosting,
+        record_id: str,
+        company_norm: str,
+        old: CandidateRecord | None,
+    ) -> tuple[float | None, LinkCell | None, dt.date | None]:
+        """(点数, URL, 取得日) を返す。既定は既存候補の前回値。"""
         previous: OpenworkResult | None = None
         if old is not None and (
             old.openwork_score is not None or old.openwork_url is not None
@@ -246,9 +268,9 @@ def run_collection(
         ow_score = old.openwork_score if old is not None else None
         ow_url = old.openwork_url if old is not None else None
         ow_on = old.openwork_fetched_on if old is not None else None
-        if not gate:
-            openwork_disabled_count += 1
-        elif not openwork_blocked:
+        if not self._gate_enabled:
+            self.disabled_count += 1
+        elif not self._blocked:
             probe = CandidateRecord(
                 candidate_id=record_id,
                 company=posting.company_raw,
@@ -258,76 +280,211 @@ def run_collection(
             try:
                 ow = attach_openwork(
                     probe,
-                    openwork_provider,
+                    self._provider,
                     True,
-                    cfg.openwork,
+                    self._cfg,
                     previous=previous,
                 )
                 ow_score, ow_url, ow_on = ow.score, ow.url, ow.fetched_on
             except OpenworkBlocked:
-                openwork_blocked = True
+                self._blocked = True
+        return ow_score, ow_url, ow_on
 
-        record = CandidateRecord(
-            candidate_id=record_id,
-            company=posting.company_raw,
-            position=posting.position_raw,
-            company_norm=company_norm,
-            position_norm=position_norm,
-            employment_type=posting.employment_raw or "",
-            salary_range_text=posting.salary_raw,
-            location_text=posting.location_raw or "不明",
-            location_result=result.location.division,
-            remote_division=result.remote.division,
-            fitness=fitness_result.fitness,
-            fit_reasons=fitness_result.fit_reasons,
-            check_reasons=fitness_result.check_reasons,
-            source_type=posting.source_type,
-            source_url=LinkCell("求人ページ", posting.raw_url),
-            openwork_score=ow_score,
-            openwork_url=ow_url,
-            openwork_fetched_on=ow_on,
-            presentation=(old.presentation if old is not None else Presentation.HELD),
-            presentation_key=fitness_result.presentation_key,
-            manual_judgment=old.manual_judgment if old is not None else None,
-            confirmed_on=posting.fetched_on,
-            status=(CandidateStatus.NEW if old is None else CandidateStatus.CONTINUING),
-            apply_status=old.apply_status if old is not None else "未応募",
-            applied_at=old.applied_at if old is not None else None,
-            apply_result=old.apply_result if old is not None else None,
+
+def _build_candidate_record(
+    posting: RawPosting,
+    result: EvaluationResult,
+    old: CandidateRecord | None,
+    record_id: str,
+    company_norm: str,
+    position_norm: str,
+    openwork_values: tuple[float | None, LinkCell | None, dt.date | None],
+) -> CandidateRecord:
+    """判定結果と OpenWork 付与結果から候補レコードを組み立てる。
+
+    既存候補があり自動列の内容が変わっていれば状態を「更新あり」にする
+    （判定は diff_guard.has_auto_diff に一本化する）。
+    """
+    fitness_result = result.fitness_result
+    assert fitness_result is not None  # ハード除外でない場合は必ず存在
+    ow_score, ow_url, ow_on = openwork_values
+    record = CandidateRecord(
+        candidate_id=record_id,
+        company=posting.company_raw,
+        position=posting.position_raw,
+        company_norm=company_norm,
+        position_norm=position_norm,
+        employment_type=posting.employment_raw or "",
+        salary_range_text=posting.salary_raw,
+        location_text=posting.location_raw or "不明",
+        location_result=result.location.division,
+        remote_division=result.remote.division,
+        fitness=fitness_result.fitness,
+        fit_reasons=fitness_result.fit_reasons,
+        check_reasons=fitness_result.check_reasons,
+        source_type=posting.source_type,
+        source_url=LinkCell("求人ページ", posting.raw_url),
+        openwork_score=ow_score,
+        openwork_url=ow_url,
+        openwork_fetched_on=ow_on,
+        presentation=(old.presentation if old is not None else Presentation.HELD),
+        presentation_key=fitness_result.presentation_key,
+        manual_judgment=old.manual_judgment if old is not None else None,
+        confirmed_on=posting.fetched_on,
+        status=(CandidateStatus.NEW if old is None else CandidateStatus.CONTINUING),
+        apply_status=old.apply_status if old is not None else "未応募",
+        applied_at=old.applied_at if old is not None else None,
+        apply_result=old.apply_result if old is not None else None,
+    )
+    if old is not None and has_auto_diff(record, old):
+        record = replace(record, status=CandidateStatus.UPDATED)
+    return record
+
+
+def _build_records(
+    cfg: AppConfig,
+    whitelist: LocationWhitelist,
+    postings: Sequence[RawPosting],
+    existing_by_id: Mapping[str, CandidateRecord],
+    existing_by_fallback: Mapping[str, CandidateRecord],
+    resolver: _OpenworkResolver,
+) -> tuple[list[CandidateRecord], list[ExclusionRow], list[str]]:
+    """求人ごとに判定し、候補レコードと除外ログ行へ振り分ける。
+
+    戻り値は (候補レコード, 除外ログ行, 除外 ID 一覧)。
+    """
+    current: list[CandidateRecord] = []
+    exclusion_rows: list[ExclusionRow] = []
+    excluded_ids: list[str] = []
+    for posting in postings:
+        result = evaluate_posting(posting, cfg, whitelist)
+        company_norm = normalize_company(posting.company_raw)
+        position_norm = normalize_position(posting.position_raw)
+        url_norm = normalize_url(posting.raw_url, cfg.normalize.tracking_params)
+        new_id = candidate_id(company_norm, position_norm, url_norm)
+        if result.hard_excluded:
+            row = _build_exclusion_row(posting, cfg, result)
+            excluded_ids.append(row.exclusion_id)
+            exclusion_rows.append(row)
+            continue
+
+        old = existing_by_id.get(new_id)
+        if old is None:
+            old = existing_by_fallback.get(
+                fallback_match_key(company_norm, position_norm)
+            )
+        record_id = old.candidate_id if old is not None else new_id
+        openwork_values = resolver.resolve(posting, record_id, company_norm, old)
+        current.append(
+            _build_candidate_record(
+                posting,
+                result,
+                old,
+                record_id,
+                company_norm,
+                position_norm,
+                openwork_values,
+            )
         )
-        if old is not None:
-            from .diff_guard import _auto_signature
+    return current, exclusion_rows, excluded_ids
 
-            if _auto_signature(record) != _auto_signature(old):
-                record = replace(record, status=CandidateStatus.UPDATED)
-        current.append(record)
+
+def _apply_presentation(
+    current: list[CandidateRecord], weekly_limit: int
+) -> list[CandidateRecord]:
+    """提示・控えの振り分け（手順10）を反映した候補一覧を返す。"""
+    presented, _held = split_presentation(current, weekly_limit)
+    presented_ids = {c.candidate_id for c in presented}
+    if not presented_ids:
+        return current
+    return [
+        (
+            replace(c, presentation=Presentation.PRESENTED)
+            if c.candidate_id in presented_ids
+            else c
+        )
+        for c in current
+    ]
+
+
+def _persist_results(
+    gateway: SheetsGateway,
+    *,
+    dry_run: bool,
+    stopped: bool,
+    current: Sequence[CandidateRecord],
+    existing: Sequence[CandidateRecord],
+    closed_ids: Sequence[str],
+    exclusion_rows: Sequence[ExclusionRow],
+) -> None:
+    """本実行かつガード停止でない場合のみ Sheets へ書く。
+
+    掲載終了の既存候補は状態を「掲載終了」に差し替えてあわせて書く。
+    """
+    if dry_run or stopped:
+        return
+    closed_set = set(closed_ids)
+    closed_records = [
+        replace(c, status=CandidateStatus.CLOSED)
+        for c in existing
+        if c.candidate_id in closed_set
+    ]
+    gateway.upsert_candidates([*current, *closed_records])
+    if exclusion_rows:
+        gateway.append_exclusions(exclusion_rows)
+
+
+def run_collection(
+    cfg: AppConfig,
+    gateway: SheetsGateway,
+    adapters: Mapping[str, SourceAdapter],
+    openwork_provider: OpenworkProvider | None,
+    dry_run: bool,
+) -> RunSummary:
+    run_on = dt.date.today()
+    # 手順2: レジストリ読取・検証（全体停止条件は例外として送出する）。
+    registry = parse_registry(gateway.read_registry_rows())
+    validate_registry(registry)
+    existing = list(gateway.read_candidates())
+
+    whitelist = _load_whitelist(cfg)
+    _check_banned_words(cfg)
+
+    postings, source_names, skipped_source_names = _collect_postings(
+        cfg, registry, adapters
+    )
+    existing_by_id, existing_by_fallback = _index_existing(existing)
+
+    resolver = _OpenworkResolver(
+        gate_enabled=openwork_gate(registry) and openwork_provider is not None,
+        provider=openwork_provider,
+        cfg=cfg.openwork,
+    )
+    current, exclusion_rows, excluded_ids = _build_records(
+        cfg,
+        whitelist,
+        postings,
+        existing_by_id,
+        existing_by_fallback,
+        resolver,
+    )
 
     # 提示・控えの振り分け（手順10）を差分計算の前に行い、提示予定を差分へ含める。
-    presented, _held = split_presentation(current, cfg.presentation.weekly_limit)
-    presented_ids = {c.candidate_id for c in presented}
-    if presented_ids:
-        current = [
-            (
-                replace(c, presentation=Presentation.PRESENTED)
-                if c.candidate_id in presented_ids
-                else c
-            )
-            for c in current
-        ]
+    current = _apply_presentation(current, cfg.presentation.weekly_limit)
 
     diff = compute_diff(existing, current, None, registry)
     guard = mass_change_guard(diff, len(existing), cfg.guard)
     stopped = guard.status == GuardStatus.STOP
 
-    if not dry_run and not stopped:
-        closed_records = [
-            replace(c, status=CandidateStatus.CLOSED)
-            for c in existing
-            if c.candidate_id in set(diff.closed)
-        ]
-        gateway.upsert_candidates([*current, *closed_records])
-        if exclusion_rows:
-            gateway.append_exclusions(exclusion_rows)
+    _persist_results(
+        gateway,
+        dry_run=dry_run,
+        stopped=stopped,
+        current=current,
+        existing=existing,
+        closed_ids=diff.closed,
+        exclusion_rows=exclusion_rows,
+    )
 
     return RunSummary(
         run_on=run_on,
@@ -345,9 +502,9 @@ def run_collection(
         held_promoted_count=len(diff.held_promoted),
         held_remaining_count=len(diff.held_remaining),
         held_closed_count=len(diff.held_closed),
-        openwork_disabled_count=openwork_disabled_count,
+        openwork_disabled_count=resolver.disabled_count,
         source_names=source_names,
-        skipped_source_names=tuple(skipped),
+        skipped_source_names=skipped_source_names,
         added_ids=diff.added,
         updated_ids=diff.updated,
         closed_ids=diff.closed,
