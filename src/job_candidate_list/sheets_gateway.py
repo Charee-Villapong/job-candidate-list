@@ -11,12 +11,11 @@ URL 列は表示テキスト付きリンク（HYPERLINK 形式）で記録し、
   backend への委譲と変換の統括のみを行う
 - `GoogleApiSheetsBackend`: 実 Sheets アクセス用の低レベル backend
 
-backend の経路分岐は現行挙動のまま構造だけを明示する（特性テスト
-test_c068_characterization.py の §4 で固定済み。揃える場合は仕様
-判断が別途必要で、本モジュールの整理では行わない）:
-- read_rows: サービスクライアントがあればサービス経路、無ければ CLI 経路
-- read_links: サービス経路は常に空を返し、CLI 経路は FORMULA 形式で復元する
-- write_rows: サービスクライアントの有無によらず常に CLI 経路
+backend の経路は CLI 一本に確定する（C-137。本人の決定により
+サービス経路を削除した）:
+- read_rows: CLI 経路で表示形式の行を返す
+- read_links: CLI 経路で FORMULA 形式からリンクを復元する
+- write_rows: CLI 経路で書く
 """
 
 from __future__ import annotations
@@ -329,7 +328,7 @@ class GoogleSheetsGateway:
 # Backend（実 Sheets アクセス用の低レベル入出力）
 # ---------------------------------------------------------------------------
 def _extract_values(data: object) -> list[list[str]]:
-    """API／CLI 応答の ``values`` を文字列の行列として取り出す。"""
+    """CLI 応答の ``values`` を文字列の行列として取り出す。"""
     values = data.get("values", []) if isinstance(data, dict) else []
     return [[str(c) for c in row] for row in values]
 
@@ -338,26 +337,18 @@ class GoogleApiSheetsBackend:
     """実 Sheets アクセス用の backend。
 
     この環境の Sheets アクセス経路である
-    ``/opt/hatch/bin/hatch_gws_cli sheets ...`` を呼び出す。
-    ``service`` に Google Sheets API クライアント風のオブジェクト
-    （``spreadsheets()`` を持つもの）が渡された場合はそちらを使う。
+    ``/opt/hatch/bin/hatch_gws_cli sheets ...`` を呼び出す
+    （C-137 で CLI 一本に確定。サービス経路は削除した）。
 
-    経路分岐はメソッドごとに明示する（現行挙動。モジュール冒頭の
-    注記と特性テスト §4 が正）:
-    - read_rows: サービス経路／CLI 経路を分岐する
-    - read_links: サービス経路は常に空、CLI 経路は FORMULA 形式で復元する
-    - write_rows: 分岐せず常に CLI 経路
+    - read_rows: CLI 経路で表示形式の行を返す
+    - read_links: CLI 経路で FORMULA 形式からリンクを復元する
+    - write_rows: CLI 経路で書く
     """
 
     CLI_PATH = "/opt/hatch/bin/hatch_gws_cli"
 
-    def __init__(self, service: object, spreadsheet_id: str) -> None:
-        self._service = service
+    def __init__(self, spreadsheet_id: str) -> None:
         self._spreadsheet_id = spreadsheet_id
-
-    def _has_service_client(self) -> bool:
-        """サービス経路が使えるか（read 系の分岐条件はこの述語に一本化する）。"""
-        return self._service is not None and hasattr(self._service, "spreadsheets")
 
     def _run_cli(self, args: list[str]) -> dict:
         completed = subprocess.run(
@@ -376,18 +367,7 @@ class GoogleApiSheetsBackend:
             return {}
 
     def read_rows(self, tab_name: str) -> list[list[str]]:
-        if self._has_service_client():
-            return self._read_rows_via_service(tab_name)
         return self._read_rows_via_cli(tab_name)
-
-    def _read_rows_via_service(self, tab_name: str) -> list[list[str]]:
-        result = (
-            self._service.spreadsheets()
-            .values()
-            .get(spreadsheetId=self._spreadsheet_id, range=tab_name)
-            .execute()
-        )
-        return _extract_values(result)
 
     def _read_rows_via_cli(self, tab_name: str) -> list[list[str]]:
         data = self._run_cli(
@@ -402,18 +382,10 @@ class GoogleApiSheetsBackend:
         return _extract_values(data)
 
     def read_links(self, tab_name: str) -> dict[tuple[int, int], str]:
-        if self._has_service_client():
-            return self._read_links_via_service()
         return self._read_links_via_cli(tab_name)
 
-    def _read_links_via_service(self) -> dict[tuple[int, int], str]:
-        # 現行挙動: サービス経路ではリンクを復元せず常に空を返す
-        # （特性テストで固定済み。帰結としてサービス経路の
-        # read_candidates は URL 列で ValueError になる）。
-        return {}
-
     def _read_links_via_cli(self, tab_name: str) -> dict[tuple[int, int], str]:
-        # CLI 経路では FORMULA 形式で読み、=HYPERLINK(...) 数式から
+        # FORMULA 形式で読み、=HYPERLINK(...) 数式から
         # 実 URL を (行, 列) 辞書に復元する。表示形式の読み取り
         # （read_rows）では表示テキストしか得られないため分離する。
         params = {
@@ -439,9 +411,6 @@ class GoogleApiSheetsBackend:
         return links
 
     def write_rows(self, tab_name: str, rows: Sequence[Sequence[str]]) -> None:
-        # 現行挙動: サービスクライアントの有無を見ず常に CLI 経路で書く
-        # （特性テストで固定済み。read 系と分岐を揃える場合は仕様判断が
-        # 別途必要であり、ここでは行わない）。
         if not rows:
             return
         self._write_rows_via_cli(tab_name, rows)

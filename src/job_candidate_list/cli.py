@@ -41,7 +41,7 @@ def _load(args: argparse.Namespace):
 
 
 def _gateway(cfg) -> GoogleSheetsGateway:
-    backend = GoogleApiSheetsBackend(None, cfg.local.spreadsheet_id)
+    backend = GoogleApiSheetsBackend(cfg.local.spreadsheet_id)
     names = cfg.local.sheet_names
     return GoogleSheetsGateway(
         backend,
