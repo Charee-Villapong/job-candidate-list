@@ -241,8 +241,8 @@ def validate_config(cfg: AppConfig) -> list[str]: ...
 | `LocationConfig` | `target_sections: tuple[str, ...]`, `whitelist_file: Path \| None = None`（勤務地対応表は別引数で渡すため、本フィールドは実ファイル読込時の参照用。`from_dict` では欠落を許す） |
 | `RemoteConfig` | `rules: tuple[RemoteRule, ...]`。`RemoteRule` は `dataclass(frozen=True)` で `pattern: str`, `division: str`（値は本体 §6.3 の閉じた 6 区分のいずれか。範囲外は `from_dict` 時点で `ConfigError`）。`RemoteRule.from_dict({"pattern": ..., "division": ...})` を持つ |
 | `EnglishConfig` | `target_sections: tuple[str, ...]`, `mandatory_sections: tuple[str, ...] = ()`, `required_phrases: tuple[str, ...] = ()`, `welcome_phrases: tuple[str, ...] = ()`, `level_phrases: tuple[str, ...] = ()` |
-| `HardConfig` | `non_regular_keywords: tuple[str, ...] = ()`, `out_of_domain_keywords: tuple[str, ...] = ()`, `business_form_keywords: tuple[str, ...] = ()` |
-| `FitnessConfig` | `salary_check_threshold_jpy: int`, `high_threshold: int`, `domain_match_points: int = 0`, `salary_points: int = 0`, `condition_points: int = 0`, `location_points: int = 0`, `salary_target_jpy: int \| None = None`, `target_domains: tuple[str, ...] = ()` |
+| `HardConfig` | `non_regular_keywords: tuple[str, ...] = ()`, `out_of_domain_keywords: tuple[str, ...] = ()`, `business_form_keywords: tuple[str, ...] = ()`, `target_domain_keywords: tuple[str, ...] = ("データ", "AI", "機械学習")`, `strong_business_form_keywords: tuple[str, ...] = ("システムインテグレーション事業", "SI事業")` |
+| `FitnessConfig` | `salary_check_threshold_jpy: int`, `high_threshold: int`, `domain_match_points: int = 0`, `salary_points: int = 0`, `condition_points: int = 0`, `location_points: int = 0`, `salary_target_jpy: int \| None = None`, `target_domains: tuple[str, ...] = ()`, `business_form_weak_keywords: tuple[str, ...] = ("常駐", "コンサルティング", "受託", "SI")` |
 | `PresentationConfig` | `weekly_limit: int = 20` |
 | `ValidityConfig` | `listing_valid_days: int` |
 | `CollectionConfig` | `request_interval_sec: int`, `per_source_max_items: int`, `timeout_sec: int` |
@@ -983,9 +983,12 @@ class EvaluationResult:
 | `hard.non_regular_keywords` | list[str] | 正社員でない雇用形態を表す表現（業務委託／派遣／契約社員 等） |
 | `hard.out_of_domain_keywords` | list[str] | 領域外を表す表現 |
 | `hard.business_form_keywords` | list[str] | SIer・コンサル寄りの事業形態を表す表現（判定は公開情報に基づく） |
+| `hard.target_domain_keywords` | list[str] | 対象領域の判定に使うキーワード群。省略時は既定値（データ／AI／機械学習）が使われる（C-064） |
+| `hard.strong_business_form_keywords` | list[str] | 事業形態を単独でも明確とみなす強い表現。省略時は既定値（システムインテグレーション事業／SI事業）が使われる（C-064） |
 | `fitness.salary_check_threshold_jpy` | int | 年収上限がこの値を下回る場合は要確認（SAL-BELOW）。目安に対する「大幅に下回る」の閾値 |
 | `fitness.high_threshold` | int | 機械的一致度（§6.6）の「高」境界 |
 | `fitness.domain_match_points` / `fitness.salary_points` / `fitness.condition_points` / `fitness.location_points` | int | 機械的一致度の配点（§6.6） |
+| `fitness.business_form_weak_keywords` | list[str] | 事業形態の曖昧判定（BIZFORM-UNKNOWN）に使う弱キーワード群。省略時は既定値（常駐／コンサルティング／受託／SI）が使われる（C-064） |
 | `presentation.weekly_limit` | int | 提示上限 N。**初期値 20** |
 | `validity.listing_valid_days` | int | 掲載確認の有効日数 |
 | `collection.request_interval_sec` | int | 情報源へのアクセス間隔（人の通常利用と同程度の低頻度）。未実装: 間隔の執行（待機処理）は未実装で、現行は値を変えても取得間隔は変わらない |
