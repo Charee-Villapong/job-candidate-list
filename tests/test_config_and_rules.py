@@ -51,6 +51,12 @@ REQUIRED_JUDGE_KEYS = [
     "auto_apply.weekly_limit",
 ]
 
+# このリストは ProfileConfig の属性一覧ではなく、プロファイル入力
+# （dict）としてフィクスチャに存在すべきキーの一覧である。削除済み
+# キー（profile_version / location_condition_enabled /
+# target_role_labels）は後方互換の読み捨て対象として入力に残るため、
+# この一覧にも残す。属性として存在しないことは
+# test_c066_characterization.py が固定する。
 REQUIRED_PROFILE_KEYS = [
     "profile_version",
     "target_domains",
@@ -83,7 +89,11 @@ def test_judge_config_has_all_effective_keys(judge_config_dict, key):
 
 @pytest.mark.parametrize("key", REQUIRED_PROFILE_KEYS)
 def test_profile_config_has_all_keys(profile_config_dict, key):
-    """志向プロファイルの各項目が設定側に存在する（§4.1）。"""
+    """志向プロファイルの各項目が入力（dict）側に存在する（§4.1）。
+
+    削除済みキーは読み捨て対象として入力に残るものを含み、
+    ProfileConfig の属性の存在を主張するものではない。
+    """
     assert key in profile_config_dict
     impl("job_candidate_list.config.load_config")
 
