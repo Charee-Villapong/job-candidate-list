@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from .config import EnglishConfig
 from .models import EnglishOutcome
+from .parsing import split_clauses
 
 _SCORE_RE = re.compile(r"(TOEIC|TOEFL|IELTS|英検)")
 
@@ -28,10 +29,6 @@ class EnglishResult:
         object.__setattr__(self, "reasons", tuple(self.reasons))
 
 
-def _sentences(text: str) -> list[str]:
-    return [s for s in re.split(r"[。\n]", text) if s.strip()]
-
-
 def _has_required_phrase(text: str, phrases: tuple[str, ...]) -> bool:
     for phrase in phrases:
         if phrase not in text:
@@ -40,13 +37,13 @@ def _has_required_phrase(text: str, phrases: tuple[str, ...]) -> bool:
             return True
         # 「必須です」等の一般表現は、英語に言及する文の中にある場合のみ
         # 英語の必須明記として扱う。
-        if any(phrase in s and "英語" in s for s in _sentences(text)):
+        if any(phrase in s and "英語" in s for s in split_clauses(text)):
             return True
     return False
 
 
 def _has_welcome_link(text: str, phrases: tuple[str, ...]) -> bool:
-    for sentence in _sentences(text):
+    for sentence in split_clauses(text):
         if "英語" in sentence and any(p in sentence for p in phrases):
             return True
     return False

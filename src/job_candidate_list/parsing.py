@@ -8,6 +8,12 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
+
+
+def split_clauses(text: str) -> list[str]:
+    """テキストを「。」と改行で文節に分割し、空白のみの節を除く。"""
+    return [c for c in re.split(r"[。\n]", text) if c.strip()]
 
 
 def parse_iso_date(value: str) -> dt.date | None:

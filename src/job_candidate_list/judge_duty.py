@@ -7,11 +7,11 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from .config import DutyConfig
 from .models import DutyOutcome
+from .parsing import split_clauses
 
 
 @dataclass(frozen=True)
@@ -29,10 +29,6 @@ class DutyResult:
             object.__setattr__(self, name, tuple(getattr(self, name)))
 
 
-def _clauses(text: str) -> list[str]:
-    return [c for c in re.split(r"[。\n]", text) if c.strip()]
-
-
 def judge_main_duty(sections: dict[str, str], cfg: DutyConfig) -> DutyResult:
     target_text = "\n".join(
         sections[name] for name in cfg.target_sections if name in sections
@@ -44,7 +40,7 @@ def judge_main_duty(sections: dict[str, str], cfg: DutyConfig) -> DutyResult:
     primary_upstream: list[str] = []
     primary_impl: list[str] = []
     if cfg.primary_markers:
-        for clause in _clauses(target_text):
+        for clause in split_clauses(target_text):
             if any(marker in clause for marker in cfg.primary_markers):
                 primary_upstream.extend(
                     kw for kw in cfg.upstream_keywords if kw in clause
