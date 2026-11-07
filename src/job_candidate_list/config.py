@@ -13,16 +13,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .errors import ConfigError
+from .models import RemoteDivision
 from .parsing import load_yaml_raw
 
-_REMOTE_DIVISIONS = (
-    "フルリモート（出社なし）",
-    "出社週1日以下",
-    "出社週2〜3日",
-    "出社週4日以上",
-    "出社必須（フル出社）",
-    "不明",
-)
+# リモート区分の閉じた集合は models.RemoteDivision が正本。
+# ここでは検証用にその値のタプルを導出するだけにする（二重管理の解消）。
+_REMOTE_DIVISIONS = tuple(str(d) for d in RemoteDivision)
 
 
 def _check_unknown(data: Mapping[str, Any], allowed: set[str], owner: str) -> None:
