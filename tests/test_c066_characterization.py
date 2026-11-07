@@ -16,11 +16,15 @@ validate_config）の入出力だけから現行挙動を固定する。
    検証のみ・収集経路では呼ばれない）。
 2. 設定読込: 同梱テンプレート（config/templates/*.example.yaml）と
    フィクスチャ設定が読み込め、残置8件の実効値が現行どおりであること。
-3. 後方互換: 削除2件のキーを含む設定辞書は現行ではエラーにならず
-   値が読み取れること。一方、セクション内の未知キーに対しては現行は
-   厳格（ConfigError）であり、その現状も固定する。削除実装の際に
-   フィールドだけを消すと、削除2件を含む既存ローカル設定は
-   「未知のキー」で読込エラーになる点に注意（所見として報告済み）。
+3. 後方互換: 削除2件のキーを含む設定はエラーにならず読み込めること。
+   削除実施後の確定挙動では、削除2件は ProfileConfig.from_dict が
+   未知キー検査の前に読み捨てる（_REMOVED_PROFILE_KEYS）ため、値は
+   実効値として保持されない（属性自体が無い）。一方、削除2件以外の
+   未知キーに対しては厳格（ConfigError）のままであり、その現状も
+   固定する。旧版の本項目が固定していた「値が読み取れる（保持される）」
+   という観点は、削除に伴う仕様変更で「読み捨てられる」に変わった
+   （詳細は test_removed_profile_keys_are_discarded_for_backward_compat
+   の docstring を参照）。
 
 既存テストとの対応（重複回避）:
 - キーの存在自体は test_config_and_rules.py の REQUIRED_*_KEYS が固定
@@ -328,28 +332,91 @@ def test_fixture_config_effective_values_for_retained_keys(
 
 
 # ---------------------------------------------------------------------------
-# 3. 後方互換の固定: 削除2件を含む辞書と、未知キーへの現行の厳格さ
+# 3. 後方互換の固定: 削除済みキーの読み捨てと、未知キーへの厳格さ
 # ---------------------------------------------------------------------------
-def test_dict_with_keys_to_be_deleted_loads_without_error(
-    profile_config_dict, judge_config_dict, local_config_dict
+def _assert_removed_keys_discarded_and_retained_values(cfg):
+    """削除済みキーが保持されず、他のキーの実効値が従来どおりである
+    ことの共通検証（辞書経路・YAML 経路の両方から使う）。"""
+    # 削除済み2件は属性自体が無く、実効値として保持されない。
+    assert not hasattr(cfg.profile, "profile_version")
+    assert not hasattr(cfg.profile, "location_condition_enabled")
+    # 他のキーの実効値は従来どおり（フィクスチャ設定の値）。
+    assert cfg.profile.target_domains == ("データ", "AI")
+    assert cfg.profile.target_role_labels == (
+        "PM",
+        "マネジメント",
+        "企画・推進",
+        "アーキテクト",
+    )
+    assert cfg.profile.salary_target_jpy == 8_000_000
+    assert cfg.profile.employment_allowed == ("正社員",)
+    assert cfg.profile.remote_preference is None
+    assert cfg.profile.location_hard_exclude is False
+    assert cfg.profile.search_queries == ("データ PM", "AI 企画 推進")
+
+
+def test_removed_profile_keys_are_discarded_for_backward_compat(
+    tmp_path, profile_config_dict, judge_config_dict, local_config_dict
 ):
-    """現行挙動: 削除予定2件（profile_version /
-    location_condition_enabled）を含む設定辞書はエラーにならず、
-    値がそのまま読み取れる（既存ローカル設定の形）。"""
+    """削除済みキーの後方互換（読み捨て）を固定するテスト。
+
+    C-066 の削除実施後の確定挙動を固定する。旧テスト
+    （test_dict_with_keys_to_be_deleted_loads_without_error）が
+    固定していた後方互換の観点のうち:
+
+    - 残る観点（不変）: 削除2件（profile_version /
+      location_condition_enabled）を含む設定はエラーにならず
+      読み込めること（未知キーエラーにならないこと）。本テストでは
+      辞書経路（AppConfig.from_dicts）と YAML 読込経路
+      （load_config）の両方で固定する。
+    - 変わった観点（仕様変更）: 旧テストは「値がそのまま読み取れる
+      （属性に保持される）」ことまで固定していたが、実施後は
+      ProfileConfig に属性自体が無く、値は実効値として保持されない。
+      ProfileConfig.from_dict が削除済み2キーを未知キー検査の前に
+      読み捨てる（_REMOVED_PROFILE_KEYS）ためである。
+
+    あわせて、削除対象でない他のキーの実効値が従来どおりである
+    ことも両経路で固定する。storage は tmp_path のみを使い、
+    実運用データには触れない。
+    """
+    # フィクスチャの現行値（1 / True）と異なる値を入れる。保持されて
+    # いれば実効値の違いとして観測できる値であり、読み捨てなら
+    # 属性自体が存在しないことだけが観測される。
     profile = copy.deepcopy(profile_config_dict)
     profile["profile_version"] = 7
     profile["location_condition_enabled"] = False
+
+    # 辞書経路: エラーなく読み込め、削除キーは保持されない。
     cfg = build_app_config(profile, judge_config_dict, local_config_dict)
-    assert cfg.profile.profile_version == 7
-    assert cfg.profile.location_condition_enabled is False
+    _assert_removed_keys_discarded_and_retained_values(cfg)
+
+    # YAML 読込経路: 同じくエラーなく読み込め、削除キーは保持されない。
+    load_config = impl("job_candidate_list.config.load_config")
+    paths = {}
+    for name, data in (
+        ("profile.local.yaml", profile),
+        ("judge.local.yaml", judge_config_dict),
+        ("local.local.yaml", local_config_dict),
+    ):
+        path = tmp_path / name
+        path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+        paths[name] = path
+    cfg_from_yaml = load_config(
+        paths["profile.local.yaml"],
+        paths["judge.local.yaml"],
+        paths["local.local.yaml"],
+    )
+    _assert_removed_keys_discarded_and_retained_values(cfg_from_yaml)
 
 
 def test_unknown_key_in_profile_dict_is_config_error_at_from_dicts(
     profile_config_dict, judge_config_dict, local_config_dict
 ):
     """現行挙動（厳格）: profile 辞書内の未知キーは AppConfig.from_dicts
-    でも ConfigError。削除2件も、フィールド削除後はこの経路で
-    「未知のキー」になる、という現行の寛容さの無さの固定。"""
+    でも ConfigError。例外は削除済み2件のみで、あちらは未知キー検査の
+    前に読み捨てられる（上記
+    test_removed_profile_keys_are_discarded_for_backward_compat が固定）。
+    それ以外の未知キーへの寛容さの無さは削除実施後も変わらない。"""
     app_config = impl("job_candidate_list.config.AppConfig")
     errors = impl("job_candidate_list.errors")
     profile = copy.deepcopy(profile_config_dict)
