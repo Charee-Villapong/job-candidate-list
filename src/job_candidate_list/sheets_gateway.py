@@ -3,6 +3,20 @@
 書き込むのは自動列のみとし、列名のホワイトリストで物理的に制限する。
 URL 列は表示テキスト付きリンク（HYPERLINK 形式）で記録し、生 URL を
 セル文字列として書かない。
+
+本モジュールの構成（責務ごとに節を分ける）:
+- 行⇔レコード変換（`_record_to_row`／`_row_to_record`／
+  `_exclusion_to_row` とその補助関数群。I/O を持たない純粋関数）
+- `GoogleSheetsGateway`: SheetsGateway Protocol の具象実装。
+  backend への委譲と変換の統括のみを行う
+- `GoogleApiSheetsBackend`: 実 Sheets アクセス用の低レベル backend
+
+backend の経路分岐は現行挙動のまま構造だけを明示する（特性テスト
+test_c068_characterization.py の §4 で固定済み。揃える場合は仕様
+判断が別途必要で、本モジュールの整理では行わない）:
+- read_rows: サービスクライアントがあればサービス経路、無ければ CLI 経路
+- read_links: サービス経路は常に空を返し、CLI 経路は FORMULA 形式で復元する
+- write_rows: サービスクライアントの有無によらず常に CLI 経路
 """
 
 from __future__ import annotations
@@ -82,6 +96,9 @@ _SOURCE_TYPE_FROM_DISPLAY["補助スカウト"] = SourceType.SCOUT
 _RULE_ID_RE = re.compile(r"[A-Z][A-Z]+-[A-Z-]+")
 
 
+# ---------------------------------------------------------------------------
+# プロトコル（I/O 境界）
+# ---------------------------------------------------------------------------
 class SheetsBackend(Protocol):
     def read_rows(self, tab_name: str) -> list[list[str]]: ...
 
@@ -100,6 +117,15 @@ class SheetsGateway(Protocol):
     def append_exclusions(self, rows: Sequence[ExclusionRow]) -> None: ...
 
     def read_registry_rows(self) -> list[list[str]]: ...
+
+
+# ---------------------------------------------------------------------------
+# 行⇔レコード変換（I/O を持たない純粋関数群）
+# ---------------------------------------------------------------------------
+def _source_type_display(source_type: SourceType) -> str:
+    """情報源種別を表示文字列へ変換する（対応が無ければ値そのもの）。"""
+    value = SourceType(source_type)
+    return _SOURCE_TYPE_DISPLAY.get(value, str(source_type))
 
 
 def _format_reasons(reasons: Sequence[Reason]) -> str:
@@ -165,9 +191,7 @@ def _record_to_row(record: CandidateRecord) -> list[str]:
         str(record.fitness),
         _format_reasons(record.fit_reasons),
         _format_reasons(record.check_reasons),
-        _SOURCE_TYPE_DISPLAY.get(
-            SourceType(record.source_type), str(record.source_type)
-        ),
+        _source_type_display(record.source_type),
         _hyperlink(record.source_url),
         "" if record.openwork_score is None else str(record.openwork_score),
         _hyperlink(record.openwork_url),
@@ -232,6 +256,25 @@ def _row_to_record(
     )
 
 
+def _exclusion_to_row(row: ExclusionRow) -> list[str]:
+    """除外ログ行（§10.3）をセル群へ変換する。"""
+    return [
+        row.exclusion_id,
+        row.fetched_on.isoformat(),
+        row.company,
+        row.position,
+        row.employment_type or "",
+        _source_type_display(row.source_type),
+        _hyperlink(row.source_url),
+        row.reason,
+        ",".join(row.rule_ids),
+        ",".join(row.config_refs),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Gateway（SheetsGateway Protocol の具象実装。変換と backend 委譲の統括）
+# ---------------------------------------------------------------------------
 class GoogleSheetsGateway:
     """SheetsGateway Protocol の具象実装（追補 A5）。"""
 
@@ -269,25 +312,17 @@ class GoogleSheetsGateway:
         self._backend.write_rows(self._sheet_names["candidates"], rows)
 
     def append_exclusions(self, rows: Sequence[ExclusionRow]) -> None:
-        out: list[list[str]] = []
-        for row in rows:
-            out.append(
-                [
-                    row.exclusion_id,
-                    row.fetched_on.isoformat(),
-                    row.company,
-                    row.position,
-                    row.employment_type or "",
-                    _SOURCE_TYPE_DISPLAY.get(
-                        SourceType(row.source_type), str(row.source_type)
-                    ),
-                    _hyperlink(row.source_url),
-                    row.reason,
-                    ",".join(row.rule_ids),
-                    ",".join(row.config_refs),
-                ]
-            )
+        out = [_exclusion_to_row(row) for row in rows]
         self._backend.write_rows(self._sheet_names["exclusions"], out)
+
+
+# ---------------------------------------------------------------------------
+# Backend（実 Sheets アクセス用の低レベル入出力）
+# ---------------------------------------------------------------------------
+def _extract_values(data: object) -> list[list[str]]:
+    """API／CLI 応答の ``values`` を文字列の行列として取り出す。"""
+    values = data.get("values", []) if isinstance(data, dict) else []
+    return [[str(c) for c in row] for row in values]
 
 
 class GoogleApiSheetsBackend:
@@ -297,6 +332,12 @@ class GoogleApiSheetsBackend:
     ``/opt/hatch/bin/hatch_gws_cli sheets ...`` を呼び出す。
     ``service`` に Google Sheets API クライアント風のオブジェクト
     （``spreadsheets()`` を持つもの）が渡された場合はそちらを使う。
+
+    経路分岐はメソッドごとに明示する（現行挙動。モジュール冒頭の
+    注記と特性テスト §4 が正）:
+    - read_rows: サービス経路／CLI 経路を分岐する
+    - read_links: サービス経路は常に空、CLI 経路は FORMULA 形式で復元する
+    - write_rows: 分岐せず常に CLI 経路
     """
 
     CLI_PATH = "/opt/hatch/bin/hatch_gws_cli"
@@ -304,6 +345,10 @@ class GoogleApiSheetsBackend:
     def __init__(self, service: object, spreadsheet_id: str) -> None:
         self._service = service
         self._spreadsheet_id = spreadsheet_id
+
+    def _has_service_client(self) -> bool:
+        """サービス経路が使えるか（read 系の分岐条件はこの述語に一本化する）。"""
+        return self._service is not None and hasattr(self._service, "spreadsheets")
 
     def _run_cli(self, args: list[str]) -> dict:
         completed = subprocess.run(
@@ -322,14 +367,20 @@ class GoogleApiSheetsBackend:
             return {}
 
     def read_rows(self, tab_name: str) -> list[list[str]]:
-        if self._service is not None and hasattr(self._service, "spreadsheets"):
-            result = (
-                self._service.spreadsheets()
-                .values()
-                .get(spreadsheetId=self._spreadsheet_id, range=tab_name)
-                .execute()
-            )
-            return [[str(c) for c in row] for row in result.get("values", [])]
+        if self._has_service_client():
+            return self._read_rows_via_service(tab_name)
+        return self._read_rows_via_cli(tab_name)
+
+    def _read_rows_via_service(self, tab_name: str) -> list[list[str]]:
+        result = (
+            self._service.spreadsheets()
+            .values()
+            .get(spreadsheetId=self._spreadsheet_id, range=tab_name)
+            .execute()
+        )
+        return _extract_values(result)
+
+    def _read_rows_via_cli(self, tab_name: str) -> list[list[str]]:
         data = self._run_cli(
             [
                 "+read",
@@ -339,13 +390,20 @@ class GoogleApiSheetsBackend:
                 tab_name,
             ]
         )
-        values = data.get("values", []) if isinstance(data, dict) else []
-        return [[str(c) for c in row] for row in values]
+        return _extract_values(data)
 
     def read_links(self, tab_name: str) -> dict[tuple[int, int], str]:
-        if self._service is not None and hasattr(self._service, "spreadsheets"):
-            # Google API クライアント経路の従来の振る舞いを変えない。
-            return {}
+        if self._has_service_client():
+            return self._read_links_via_service()
+        return self._read_links_via_cli(tab_name)
+
+    def _read_links_via_service(self) -> dict[tuple[int, int], str]:
+        # 現行挙動: サービス経路ではリンクを復元せず常に空を返す
+        # （特性テストで固定済み。帰結としてサービス経路の
+        # read_candidates は URL 列で ValueError になる）。
+        return {}
+
+    def _read_links_via_cli(self, tab_name: str) -> dict[tuple[int, int], str]:
         # CLI 経路では FORMULA 形式で読み、=HYPERLINK(...) 数式から
         # 実 URL を (行, 列) 辞書に復元する。表示形式の読み取り
         # （read_rows）では表示テキストしか得られないため分離する。
@@ -363,18 +421,23 @@ class GoogleApiSheetsBackend:
                 json.dumps(params, ensure_ascii=False),
             ]
         )
-        values = data.get("values", []) if isinstance(data, dict) else []
         links: dict[tuple[int, int], str] = {}
-        for row_index, row in enumerate(values):
+        for row_index, row in enumerate(_extract_values(data)):
             for col_index, cell in enumerate(row):
-                url = _parse_hyperlink_url(str(cell))
+                url = _parse_hyperlink_url(cell)
                 if url:
                     links[(row_index, col_index)] = url
         return links
 
     def write_rows(self, tab_name: str, rows: Sequence[Sequence[str]]) -> None:
+        # 現行挙動: サービスクライアントの有無を見ず常に CLI 経路で書く
+        # （特性テストで固定済み。read 系と分岐を揃える場合は仕様判断が
+        # 別途必要であり、ここでは行わない）。
         if not rows:
             return
+        self._write_rows_via_cli(tab_name, rows)
+
+    def _write_rows_via_cli(self, tab_name: str, rows: Sequence[Sequence[str]]) -> None:
         # +append にはタブ（範囲）の指定手段がなく先頭タブへ流れるため、
         # 範囲を指定できる正規形式を使う。USER_ENTERED により
         # =HYPERLINK(...) 文字列は数式セルとして保持される。
