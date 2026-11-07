@@ -78,6 +78,7 @@ def assign_fitness(
     remote: RemoteResult,
     english: EnglishResult,
     cfg: FitnessConfig,
+    tracking_params: tuple[str, ...] | None = None,
 ) -> FitnessResult:
     fit_reasons: list[Reason] = []
     check_reasons: list[Reason] = []
@@ -179,10 +180,14 @@ def assign_fitness(
     if not fit_reasons:
         fit_reasons.append(Reason("適合を裏付ける観点は検出されなかった", ()))
 
+    # 提示順キーの ID は pipeline 側の candidate_id と一致させるため、
+    # 設定の tracking_params で URL を正規化してから計算する（C-063）。
+    # 未指定（None）の場合は normalize_url の既定リストを使う
+    # （従来の直接呼出しとの互換）。
     cid = candidate_id(
         normalize_company(posting.company_raw),
         normalize_position(posting.position_raw),
-        normalize_url(posting.raw_url),
+        normalize_url(posting.raw_url, tracking_params),
     )
     presentation_key = (
         FITNESS_RANK[fitness],

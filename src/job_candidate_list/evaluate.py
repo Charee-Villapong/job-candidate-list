@@ -163,7 +163,13 @@ def evaluate_posting(
     fitness_result: FitnessResult | None = None
     if not hard_excluded:
         fitness_result = assign_fitness(
-            posting, duty, location, remote, english, cfg.fitness
+            posting,
+            duty,
+            location,
+            remote,
+            english,
+            cfg.fitness,
+            tracking_params=cfg.normalize.tracking_params,
         )
 
     ordered: list[str] = []
