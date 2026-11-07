@@ -20,6 +20,22 @@ from .parsing import load_yaml_raw
 # ここでは検証用にその値のタプルを導出するだけにする（二重管理の解消）。
 _REMOTE_DIVISIONS = tuple(str(d) for d in RemoteDivision)
 
+# 判定キーワードの既定値（C-064）。従来 judge_hard／fitness のコード内に
+# 直書きされていた値と完全に同一であり、設定ファイルでキーを省略した
+# 場合はこの既定値が従来どおりの判定を再現する。正本はここ（設定側）とし、
+# 判定モジュール側に同値のリテラルを置かない。
+DEFAULT_TARGET_DOMAIN_KEYWORDS: tuple[str, ...] = ("データ", "AI", "機械学習")
+DEFAULT_STRONG_BUSINESS_FORM_KEYWORDS: tuple[str, ...] = (
+    "システムインテグレーション事業",
+    "SI事業",
+)
+DEFAULT_WEAK_BUSINESS_FORM_KEYWORDS: tuple[str, ...] = (
+    "常駐",
+    "コンサルティング",
+    "受託",
+    "SI",
+)
+
 
 def _check_unknown(data: Mapping[str, Any], allowed: set[str], owner: str) -> None:
     unknown = set(data) - allowed
@@ -319,6 +335,12 @@ class HardConfig:
     non_regular_keywords: tuple[str, ...] = ()
     out_of_domain_keywords: tuple[str, ...] = ()
     business_form_keywords: tuple[str, ...] = ()
+    # 対象領域の判定に使うキーワード（従来 judge_hard に直書き。C-064）。
+    target_domain_keywords: tuple[str, ...] = DEFAULT_TARGET_DOMAIN_KEYWORDS
+    # 事業形態を単独でも明確とみなす強キーワード（同上）。
+    strong_business_form_keywords: tuple[str, ...] = (
+        DEFAULT_STRONG_BUSINESS_FORM_KEYWORDS
+    )
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "HardConfig":
@@ -330,6 +352,8 @@ class HardConfig:
                 "non_regular_keywords": _as_str_tuple,
                 "out_of_domain_keywords": _as_str_tuple,
                 "business_form_keywords": _as_str_tuple,
+                "target_domain_keywords": _as_str_tuple,
+                "strong_business_form_keywords": _as_str_tuple,
             },
         )
 
@@ -344,6 +368,9 @@ class FitnessConfig:
     location_points: int = 0
     salary_target_jpy: int | None = None
     target_domains: tuple[str, ...] = ()
+    # 事業形態の曖昧判定（BIZFORM-UNKNOWN）に使う弱キーワード
+    # （従来 fitness に直書き。C-064）。
+    business_form_weak_keywords: tuple[str, ...] = DEFAULT_WEAK_BUSINESS_FORM_KEYWORDS
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "FitnessConfig":
@@ -361,6 +388,7 @@ class FitnessConfig:
                 "condition_points": _as_int,
                 "location_points": _as_int,
                 "target_domains": _as_str_tuple,
+                "business_form_weak_keywords": _as_str_tuple,
             },
         )
 

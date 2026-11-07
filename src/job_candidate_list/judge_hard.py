@@ -9,19 +9,13 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from .config import HardConfig
+from .config import DEFAULT_STRONG_BUSINESS_FORM_KEYWORDS, HardConfig
 from .models import RawPosting
 
-# 対象領域の判定に使う一般化キーワード。志向プロファイルの対象領域
-# （データ／AI 領域）を表す語であり、HardConfig には対象領域側の
-# キーワード置き場が無いため、本モジュールで補助的に保持する。
-_TARGET_DOMAIN_WORDS: tuple[str, ...] = ("データ", "AI", "機械学習")
-
-# 事業形態の明確な判断に使う強キーワード（単独でも明確とみなす）。
-_STRONG_BIZFORM_WORDS: tuple[str, ...] = (
-    "システムインテグレーション事業",
-    "SI事業",
-)
+# 判定キーワードは全て設定側（HardConfig）が正本（C-064）。
+# 対象領域キーワードは cfg.target_domain_keywords、事業形態の強キーワード
+# （単独でも明確とみなす）は cfg.strong_business_form_keywords を使う。
+# 既定値は config.DEFAULT_* と従来の直書き値で完全に同一である。
 
 
 class ExclusionHit(NamedTuple):
@@ -68,11 +62,21 @@ def matched_business_form_keywords(
 
 def is_clear_business_form(
     matched: tuple[str, ...],
+    strong_keywords: tuple[str, ...] | None = None,
 ) -> bool:
-    """事業形態が明確と判断できるか（複数一致または強キーワード）。"""
+    """事業形態が明確と判断できるか（複数一致または強キーワード）。
+
+    ``strong_keywords`` を省略した場合は設定の既定値
+    （config.DEFAULT_STRONG_BUSINESS_FORM_KEYWORDS）を使う。
+    """
     if len(matched) >= 2:
         return True
-    return any(kw in _STRONG_BIZFORM_WORDS for kw in matched)
+    strong = (
+        DEFAULT_STRONG_BUSINESS_FORM_KEYWORDS
+        if strong_keywords is None
+        else strong_keywords
+    )
+    return any(kw in strong for kw in matched)
 
 
 def judge_hard_exclusions(posting: RawPosting, cfg: HardConfig) -> list[ExclusionHit]:
@@ -89,7 +93,7 @@ def judge_hard_exclusions(posting: RawPosting, cfg: HardConfig) -> list[Exclusio
             )
     # 領域外: 対象領域の語が無く、領域外キーワードに一致する場合のみ。
     searchable = searchable_text(posting)
-    has_domain = any(word in searchable for word in _TARGET_DOMAIN_WORDS)
+    has_domain = any(word in searchable for word in cfg.target_domain_keywords)
     if not has_domain and any(kw in searchable for kw in cfg.out_of_domain_keywords):
         hits.append(
             ExclusionHit(
@@ -100,7 +104,7 @@ def judge_hard_exclusions(posting: RawPosting, cfg: HardConfig) -> list[Exclusio
         )
     # 事業形態: 明確に判断できる場合のみ。
     matched_biz = matched_business_form_keywords(posting, cfg)
-    if is_clear_business_form(matched_biz):
+    if is_clear_business_form(matched_biz, cfg.strong_business_form_keywords):
         hits.append(
             ExclusionHit(
                 rule_id="HARD-BIZFORM",

@@ -62,6 +62,12 @@ hard:
     - "<領域外を表す表現>"
   business_form_keywords:
     - "<SIer・コンサル寄りの事業形態を表す表現>"
+  # 省略時はコード側の既定値（対象領域の一般化キーワード）が使われる。
+  target_domain_keywords:
+    - "<対象領域を表すキーワード>"
+  # 省略時はコード側の既定値（単独でも明確とみなす強表現）が使われる。
+  strong_business_form_keywords:
+    - "<事業形態を明確とみなす強い表現>"
 fitness:
   salary_check_threshold_jpy: 0
   high_threshold: 70
@@ -69,6 +75,9 @@ fitness:
   salary_points: 20
   condition_points: 10
   location_points: 10
+  # 省略時はコード側の既定値（事業形態の弱い表現）が使われる。
+  business_form_weak_keywords:
+    - "<事業形態が曖昧とみなす弱い表現>"
 presentation:
   weekly_limit: 20
 validity:
