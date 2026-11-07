@@ -6,10 +6,8 @@ from dataclasses import replace
 from enum import StrEnum
 from typing import Sequence
 
-from .fitness import FitnessResult
+from .fitness import FITNESS_RANK, FitnessResult
 from .models import CandidateRecord, CandidateStatus, Fitness, Presentation
-
-_FITNESS_RANK = {Fitness.HIGH: 0, Fitness.MEDIUM: 1, Fitness.CHECK: 2}
 
 
 class HeldDecision(StrEnum):
@@ -25,7 +23,7 @@ def presentation_sort_key(
     if candidate.presentation_key is not None:
         key = tuple(candidate.presentation_key)
         return (int(key[0]), int(key[1]), int(key[2]), str(key[3]))
-    rank = _FITNESS_RANK[Fitness(candidate.fitness)]
+    rank = FITNESS_RANK[Fitness(candidate.fitness)]
     third = (
         -candidate.confirmed_on.toordinal() if candidate.confirmed_on is not None else 0
     )
