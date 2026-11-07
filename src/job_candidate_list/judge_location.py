@@ -61,6 +61,20 @@ def load_whitelist(path: Path) -> LocationWhitelist:
     return LocationWhitelist.from_dict(data)
 
 
+def _unknown_result(reason: str, *, remote_unknown: bool = False) -> LocationResult:
+    """「勤務地判定不能」の結果を組み立てる（出現箇所の共通化）。
+
+    リモート頻度不明が理由の場合は REMOTE-UNKNOWN を併記する。
+    """
+    rule_ids = ("LOC-UNKNOWN", "REMOTE-UNKNOWN") if remote_unknown else ("LOC-UNKNOWN",)
+    return LocationResult(
+        division=LocationDivision.UNKNOWN,
+        rule_ids=rule_ids,
+        reasons=(reason,),
+        matched_municipality=None,
+    )
+
+
 def _extract_municipalities(text: str, known: set[str]) -> list[str]:
     residual = text
     for name in known:
@@ -84,11 +98,9 @@ def judge_location(
             matched_municipality=None,
         )
     if remote.division == RemoteDivision.UNKNOWN:
-        return LocationResult(
-            division=LocationDivision.UNKNOWN,
-            rule_ids=("LOC-UNKNOWN", "REMOTE-UNKNOWN"),
-            reasons=("リモート頻度が不明のため勤務地も判定不能として扱う",),
-            matched_municipality=None,
+        return _unknown_result(
+            "リモート頻度が不明のため勤務地も判定不能として扱う",
+            remote_unknown=True,
         )
     text = "\n".join(
         posting.sections[name]
@@ -96,26 +108,11 @@ def judge_location(
         if name in posting.sections
     )
     if not text.strip():
-        return LocationResult(
-            division=LocationDivision.UNKNOWN,
-            rule_ids=("LOC-UNKNOWN",),
-            reasons=("勤務地系セクションの記載が無い",),
-            matched_municipality=None,
-        )
+        return _unknown_result("勤務地系セクションの記載が無い")
     if "転勤" in text or "全国勤務" in text:
-        return LocationResult(
-            division=LocationDivision.UNKNOWN,
-            rule_ids=("LOC-UNKNOWN",),
-            reasons=("転勤あり・全国勤務のため主たる勤務地を特定できない",),
-            matched_municipality=None,
-        )
+        return _unknown_result("転勤あり・全国勤務のため主たる勤務地を特定できない")
     if "本社所在地" in text and "勤務地は" not in text:
-        return LocationResult(
-            division=LocationDivision.UNKNOWN,
-            rule_ids=("LOC-UNKNOWN",),
-            reasons=("本社所在地のみの記載は勤務地判定の根拠にしない",),
-            matched_municipality=None,
-        )
+        return _unknown_result("本社所在地のみの記載は勤務地判定の根拠にしない")
     whitelist_names = [e.municipality for e in whitelist.municipalities]
     hits = [name for name in whitelist_names if name in text]
     others = _extract_municipalities(text, set(whitelist_names))
@@ -127,12 +124,7 @@ def judge_location(
             matched_municipality=hits[0],
         )
     if hits and others:
-        return LocationResult(
-            division=LocationDivision.UNKNOWN,
-            rule_ids=("LOC-UNKNOWN",),
-            reasons=("複数の勤務地があり主たる勤務地を特定できない",),
-            matched_municipality=None,
-        )
+        return _unknown_result("複数の勤務地があり主たる勤務地を特定できない")
     if others:
         return LocationResult(
             division=LocationDivision.UNFIT,
@@ -140,9 +132,4 @@ def judge_location(
             reasons=("勤務地が対応表の範囲外であることが明確である",),
             matched_municipality=None,
         )
-    return LocationResult(
-        division=LocationDivision.UNKNOWN,
-        rule_ids=("LOC-UNKNOWN",),
-        reasons=("勤務地の市区町村を抽出できない",),
-        matched_municipality=None,
-    )
+    return _unknown_result("勤務地の市区町村を抽出できない")
