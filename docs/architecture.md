@@ -428,6 +428,13 @@ def judge_hard_exclusions(posting: RawPosting, cfg: HardConfig) -> list[Exclusio
     # （不明を除外に倒さない。fitness 側で要確認理由に残す）。
 ```
 
+雇用形態判定の正の仕組みは、肯定形リスト `profile.employment_allowed` である（C-144）。
+雇用形態が未記載の場合と、明示されているが肯定形リストに含まれない場合は、いずれも
+ハード除外には倒さず、fitness 側（§3.9 規則 7）で要確認に倒す。否定形キーワード
+（`hard.non_regular_keywords`）は、明示された既知の非正規形態に対する補助的な
+ハード除外として残るものであり、ハード判定は適合度付けより先に評価されるため、
+否定形キーワードに一致する明示形態は肯定形リストに含まれていてもハード除外が優先する。
+
 ### 3.9 適合度付け（`fitness.py`）
 
 ```python
@@ -445,7 +452,13 @@ def assign_fitness(posting: RawPosting, duty: DutyResult, location: LocationResu
     #  5. 年収レンジが取得でき、かつ上限が設定 `fitness.salary_check_threshold_jpy` を
     #     大幅に下回る → 要確認（SAL-BELOW）。年収不明は単独では要確認にしない（SAL-UNKNOWN を理由に残す）
     #  6. 事業形態が曖昧（BIZFORM-UNKNOWN）→ 要確認
-    #  7. 上記以外で duty.outcome == upstream の場合のみ 高／中 を付ける:
+    #  7. 雇用形態が未記載（EMPTYPE-UNKNOWN）、または明示されているが設定
+    #     `profile.employment_allowed`（肯定形リスト）に含まれない
+    #     （EMPTYPE-NOT-ALLOWED）→ 要確認。許可形態に一致する場合は雇用形態を
+    #     理由に要確認に倒さず、fit reason も追加しない。許可リストは
+    #     `assign_fitness` のキーワード引数 `employment_allowed` で渡し、
+    #     渡さない直接呼出しでは本条件は無効とする（従来挙動を保つ）
+    #  8. 上記以外で duty.outcome == upstream の場合のみ 高／中 を付ける:
     #     年収目安との距離・領域一致・勤務条件の確認可否・勤務地適合の機械的評価（§6.6）で
     #     設定 `fitness.high_threshold` 以上 → 高、未満 → 中。
     # すべての候補に fit_reasons と check_reasons の両方を必ず生成する（該当が無い側は
@@ -955,7 +968,7 @@ class EvaluationResult:
 | `last_updated` | date | プロファイル最終更新日。週次通知に添える材料 |
 | `target_domains` | list[str] | 志向領域のキーワード群（データ／AI 領域を表す一般化キーワード） |
 | `salary_target_jpy` | int | 年収目安（円／年） |
-| `employment_allowed` | list[str] | 許可する雇用形態。初期値は正社員のみ |
+| `employment_allowed` | list[str] | 許可する雇用形態（肯定形リスト）。初期値は正社員のみ。配線済み（C-144）: 雇用形態が未記載／リスト外の場合は fitness 側で要確認に倒す（ハード除外ではない）。否定形キーワードに一致する明示形態はハード除外が優先する |
 | `remote_preference` | str \| null | リモート希望頻度。初期値は未指定（null）。未実装（予約）: 希望頻度が指定された時点で適合条件化する。現行は値を入れても判定は変わらない |
 | `location_hard_exclude` | bool | 勤務地条件のハード除外化。初期値 false（本人の指定があった場合のみ true）。未実装（予約）: 現行は true でもハード除外にならない |
 | `search_queries` | list[str] | 収集に使う一般化キーワードの組み合わせ。個人情報・現職の具体名を含めない。実行前に禁止ワードスキャンを通す |
@@ -1053,6 +1066,8 @@ class EvaluationResult:
 | ID | 区分 | 発火条件 | 結果 |
 |---|---|---|---|
 | `HARD-EMPTYPE` | 雇用形態によるハード除外 | 正社員でないことが明確 | 除外ログ行き |
+| `EMPTYPE-UNKNOWN` | 雇用形態未記載による要確認 | 雇用形態が未記載（読み取れない） | 適合度「要確認」 |
+| `EMPTYPE-NOT-ALLOWED` | 雇用形態が許可リスト外による要確認 | 雇用形態が明示されているが `profile.employment_allowed` に含まれない | 適合度「要確認」 |
 | `HARD-DOMAIN` | 領域外によるハード除外 | データ／AI 領域から明らかに外れる | 除外ログ行き |
 | `HARD-BIZFORM` | 事業形態によるハード除外 | SIer・コンサル寄りと公開情報から明確に判断できる | 除外ログ行き |
 | `BIZFORM-UNKNOWN` | 事業形態が判断できない | 曖昧で断定できない | 適合度「要確認」 |
