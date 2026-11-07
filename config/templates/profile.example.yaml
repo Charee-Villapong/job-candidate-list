@@ -10,7 +10,6 @@ salary_target_jpy: 0
 employment_allowed:
   - "<許可する雇用形態>"
 remote_preference: null
-location_condition_enabled: true
 location_hard_exclude: false
 search_queries:
   - "<一般化した検索キーワードの組み合わせ>"
