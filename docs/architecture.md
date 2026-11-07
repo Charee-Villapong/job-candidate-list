@@ -589,8 +589,8 @@ class GoogleSheetsGateway:  # SheetsGateway Protocol の具象実装
   backend へ渡す行は `AUTO_COLUMNS_CANDIDATE` の列だけから構成され、
   `MANUAL_COLUMNS_CANDIDATE` の列位置へは書き込みデータを渡さない。
 - 実 API 接続用の backend 実装クラス名は `GoogleApiSheetsBackend` とする
-  （コンストラクタは `(service: object, spreadsheet_id: str)`。`service` は
-  Google Sheets API クライアントオブジェクトで、型は Protocol で縛らない）。
+  （コンストラクタは `(spreadsheet_id: str)`。Sheets アクセスは
+  `/opt/hatch/bin/hatch_gws_cli` 経由の CLI 一本とする（C-137））。
 - テスト側の `FakeSheetsGateway`（conftest）は Protocol に対するフェイクとして従来どおり有効であり、
   具象クラス名の確定によって置き換えない。
 
