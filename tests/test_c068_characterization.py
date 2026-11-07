@@ -13,7 +13,7 @@ C-063 候補 ID 一本化／C-067 sheets_gateway 分離）の安全網であり�
  2. ATS アダプタ 4 本（Greenhouse／Lever／Ashby／SmartRecruiters）の
     固定 JSON フィクスチャ → RawPosting 変換 ― 従来テストゼロ
  3. green_manual（手動専用アダプタ）
- 4. sheets_gateway のサービス経路（C-067 の前提）― 従来テストゼロ
+ 4. sheets_gateway のサービス経路（C-067 の前提）― C-137 で削除（§4 は墓標）
  5. config.py の from_dict 異常系のクラス横断固定（C-061 の前提）
  6. C-063: 候補 ID の計算方法の統一（C-068 で食い違いを固定→
     C-063 の本人決定で設定側に統一→本ファイルで一致を固定）
@@ -843,99 +843,39 @@ def test_green_manual_always_raises_source_fetch_error():
 
 
 # ---------------------------------------------------------------------------
-# 4. sheets_gateway のサービス経路（C-067 の前提。CLI 経路は
-#    test_sheets_backend_cli.py が担当し、ここでは重複させない）
+# 4. sheets_gateway のサービス経路（削除済み ― 墓標）
 # ---------------------------------------------------------------------------
-class _FakeExecuteRequest:
-    def __init__(self, service, kind, kwargs):
-        self._service, self._kind, self._kwargs = service, kind, kwargs
-
-    def execute(self):
-        self._service.calls.append((self._kind, self._kwargs))
-        if self._kind == "get":
-            return {"values": self._service.payload_values}
-        return {}
-
-
-class _FakeValuesResource:
-    def __init__(self, service):
-        self._service = service
-
-    def get(self, **kwargs):
-        return _FakeExecuteRequest(self._service, "get", kwargs)
-
-    def update(self, **kwargs):
-        return _FakeExecuteRequest(self._service, "update", kwargs)
-
-    def append(self, **kwargs):
-        return _FakeExecuteRequest(self._service, "append", kwargs)
-
-
-class _FakeSheetsService:
-    """Google Sheets API クライアントの最小フェイク（service 経路用）。"""
-
-    def __init__(self, values=None):
-        self.payload_values = values or []
-        self.calls: list = []
-
-    def spreadsheets(self):
-        return self
-
-    def values(self):
-        return _FakeValuesResource(self)
-
-
-def test_service_backend_read_rows_uses_service():
-    gw = impl_module("sheets_gateway")
-    service = _FakeSheetsService(values=[["a", "b"], ["1", "2"]])
-    backend = gw.GoogleApiSheetsBackend(service, "SID")
-    assert backend.read_rows("候補リスト") == [["a", "b"], ["1", "2"]]
-    assert service.calls == [("get", {"spreadsheetId": "SID", "range": "候補リスト"})]
-
-
-def test_service_backend_read_links_always_empty():
-    """現行挙動（仕様 §3.11 の候補9の指摘どおり）: サービス経路の
-    read_links はリンク付きセルでも常に空 dict を返す。"""
-    gw = impl_module("sheets_gateway")
-    backend = gw.GoogleApiSheetsBackend(_FakeSheetsService(), "SID")
-    assert backend.read_links("候補リスト") == {}
-
-
-def test_service_backend_write_rows_ignores_service_and_uses_cli(monkeypatch):
-    """現行挙動の不整合（候補9）: service があっても write_rows は
-    サービス経路を使わず CLI 経路（subprocess）へ行く。"""
-    gw = impl_module("sheets_gateway")
-    service = _FakeSheetsService()
-    backend = gw.GoogleApiSheetsBackend(service, "SID")
-
-    class _CliCalled(Exception):
-        pass
-
-    def fake_run(*args, **kwargs):
-        raise _CliCalled()
-
-    monkeypatch.setattr(gw.subprocess, "run", fake_run)
-    with pytest.raises(_CliCalled):
-        backend.write_rows("候補リスト", [["x", "y"]])
-    assert service.calls == []  # サービスには一切触れていない
-
-
-def test_gateway_read_candidates_with_service_backend_fails_on_links():
-    """現行挙動の帰結: サービス経路では read_links が空のため、URL 列を
-    持つ候補行の読み戻しは ValueError（実 URL が読み取れない）になる。"""
-    gw = impl_module("sheets_gateway")
-    auto = list(gw.AUTO_COLUMNS_CANDIDATE)
-    header = auto + list(gw.MANUAL_COLUMNS_CANDIDATE)
-    row = [""] * len(header)
-    row[0] = "cand_0000000000000001"
-    row[1] = "株式会社サンプル"
-    row[2] = "PM"
-    row[auto.index("情報源URL")] = "求人ページ"
-    service = _FakeSheetsService(values=[header, row])
-    backend = gw.GoogleApiSheetsBackend(service, "SID")
-    gateway = gw.GoogleSheetsGateway(backend)
-    with pytest.raises(ValueError):
-        gateway.read_candidates()
+# C-137 の仕様変更に伴う削除。本人の決定で GoogleApiSheetsBackend の
+# サービス経路を削除し CLI 経路に一本化した（実装はコミット fb7409e で
+# コンストラクタが (spreadsheet_id: str) に確定）。これに伴い、本節に
+# あったサービス経路テスト 4 件を削除した。削除したテスト名と、各テスト
+# が固定していた挙動の要約は次のとおり:
+# - test_service_backend_read_rows_uses_service:
+#     サービス経由の read_rows が spreadsheets.values.get を
+#     spreadsheetId／range 指定で呼び、返ってきた values をそのまま返す。
+# - test_service_backend_read_links_always_empty:
+#     サービス経路の read_links は、リンク付きセルでも常に空 dict を返す。
+# - test_service_backend_write_rows_ignores_service_and_uses_cli:
+#     service があっても write_rows はサービス経路を使わず CLI 経路
+#     （subprocess）へ行き、サービスには一切触れない。
+# - test_gateway_read_candidates_with_service_backend_fails_on_links:
+#     サービス経路では read_links が空のため、URL 列を持つ候補行の
+#     読み戻しは ValueError（実 URL が読み取れない）になる。
+# あわせて、サービス経路専用のフェイク 3 クラス
+# （_FakeExecuteRequest／_FakeValuesResource／_FakeSheetsService）も除去した。
+# 後継の固定先（CLI 経路の特性はそちらで固定する）:
+# - tests/test_sheets_backend_cli.py:
+#     test_candidate_roundtrip_via_cli／test_tabs_are_independent／
+#     test_read_links_via_cli_returns_real_urls／
+#     test_bulk_upsert_writes_all_rows
+# - tests/test_c137_characterization.py:
+#     test_cli_read_rows_and_registry_rows_return_seeded_rows_verbatim／
+#     test_cli_read_links_on_exclusions_tab_maps_only_formula_cells／
+#     test_cli_read_candidates_restores_both_link_columns_and_openwork／
+#     test_cli_write_rows_single_append_call_with_exact_payload_and_range／
+#     test_cli_write_rows_empty_rows_makes_no_cli_call／
+#     test_cli_append_exclusions_serializes_row_as_single_append／
+#     test_backend_full_flow_completes_entirely_via_cli
 
 
 # ---------------------------------------------------------------------------
