@@ -54,15 +54,16 @@ class FitnessResult:
         object.__setattr__(self, "presentation_key", tuple(self.presentation_key))
 
 
-def _is_bizform_ambiguous(posting: RawPosting) -> bool:
+def _is_bizform_ambiguous(posting: RawPosting, weak_words: tuple[str, ...]) -> bool:
     """事業形態が曖昧か（弱い一致のみで断定できない状態）。
 
-    判定キーワード群は設定由来が原則だが、適合度付けのシグネチャには
-    HardConfig が含まれないため、一般化した弱キーワードで補助判定する。
+    弱キーワードは設定由来（FitnessConfig.business_form_weak_keywords。
+    既定値は従来の直書き値と同一。C-064）とする。適合度付けの
+    シグネチャには HardConfig が含まれないため、一致の抽出だけ
+    judge_hard 側の補助関数を流用する。
     ハード除外側（judge_hard）が明確と判断した候補はここへ来ない。
     """
     text = posting.company_overview_raw or ""
-    weak_words = ("常駐", "コンサルティング", "受託", "SI")
     if not any(word in text for word in weak_words):
         return False
     cfg = HardConfig(business_form_keywords=weak_words)
@@ -140,7 +141,7 @@ def assign_fitness(
     else:
         check_reasons.append(Reason("公開情報に年収の記載がない", ("SAL-UNKNOWN",)))
     # 6. 事業形態が曖昧
-    if _is_bizform_ambiguous(posting):
+    if _is_bizform_ambiguous(posting, cfg.business_form_weak_keywords):
         needs_check = True
         check_reasons.append(Reason("事業形態が判断できない", ("BIZFORM-UNKNOWN",)))
 
