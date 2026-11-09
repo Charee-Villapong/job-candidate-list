@@ -2,7 +2,7 @@
 
 設計方針:
 - 実装（src/job_candidate_list/）はまだ存在しない前提。公開インターフェース
-  （docs/architecture.md §3 と docs/architecture-addendum.md の確定仕様）への
+  （docs/architecture.md §3 の確定仕様）への
   アクセスはすべて `impl()` 経由とし、未実装の場合は ImportError ではなく
   「どの公開インターフェースが未実装か」が分かるメッセージでテストを
   失敗させる（pytest の収集は通す）。失敗理由は全テストで
@@ -12,7 +12,7 @@
 - 設定フィクスチャは architecture.md §4 のキー構造を模した辞書で保持する。
   特に勤務地対応表はテスト専用の小さなもの（架空の市区町村）を使い、
   実在の本人の対応表とは切り離す。
-- オブジェクト生成は追補の確定インターフェース（AppConfig.from_dicts、
+- オブジェクト生成は確定インターフェース（AppConfig.from_dicts、
   CandidateRecord は candidate_id のみ必須、LocationWhitelist.from_dict 等）を
   使う共通ヘルパー（build_*）に寄せ、呼び出し形の調整箇所を 1 か所にする。
 """
@@ -55,14 +55,14 @@ def impl(dotted: str):
                 pytest.fail(
                     f"未実装: {dotted} が存在しない"
                     f"（{module_name} に {attr} が無い）。"
-                    "architecture.md §3／追補の公開インターフェース"
+                    "architecture.md §3 の公開インターフェース"
                     "仕様どおりでない。"
                 )
             obj = getattr(obj, attr)
         return obj
     pytest.fail(
         f"未実装: {dotted} を import できない（{last_error}）。"
-        "architecture.md §3／追補の公開インターフェースが"
+        "architecture.md §3 の公開インターフェースが"
         "まだ実装されていない。"
     )
 
@@ -296,7 +296,7 @@ class FakeOpenworkProvider:
 
 
 class FakeSourceAdapter:
-    """SourceAdapter Protocol（追補付録）に対するフェイク。
+    """SourceAdapter Protocol（architecture.md §1.2）に対するフェイク。
 
     `fetch(source)` には SourceEntry が渡る想定だが、引数は記録するだけで
     解釈せず、固定の RawPosting 一覧を返す。
@@ -360,10 +360,10 @@ def registry_rows(source_id: str = "サンプル情報源A") -> list[list[str]]:
 
 
 # ---------------------------------------------------------------------------
-# 確定インターフェースによるオブジェクト生成ヘルパー（追補 A1〜A3）
+# 確定インターフェースによるオブジェクト生成ヘルパー
 # ---------------------------------------------------------------------------
 def build_app_config(profile_data: dict, judge_data: dict, local_data=None):
-    """AppConfig.from_dicts（追補 A2.2）で設定オブジェクトを組み立てる。"""
+    """AppConfig.from_dicts（architecture.md §3.1）で設定オブジェクトを組み立てる。"""
     app_config = impl("job_candidate_list.config.AppConfig")
     if local_data is None:
         local_data = {
@@ -378,7 +378,7 @@ def build_app_config(profile_data: dict, judge_data: dict, local_data=None):
 
 
 def build_candidate_record(candidate_id: str, **over):
-    """CandidateRecord を生成する（追補 A3: 必須引数は candidate_id のみ）。"""
+    """CandidateRecord を生成する（architecture.md §2.2: 必須引数は candidate_id のみ）。"""
     models = impl("job_candidate_list.models")
     return models.CandidateRecord(candidate_id=candidate_id, **over)
 
@@ -422,7 +422,7 @@ def build_raw_posting(**over):
 
 
 def build_location_whitelist(data: dict):
-    """LocationWhitelist.from_dict（追補 A2.3）で対応表オブジェクトを作る。"""
+    """LocationWhitelist.from_dict（architecture.md §3.6）で対応表オブジェクトを作る。"""
     models = impl("job_candidate_list.models")
     return models.LocationWhitelist.from_dict(data)
 
