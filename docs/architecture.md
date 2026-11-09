@@ -1,22 +1,15 @@
 # 設計文書（architecture）― 応募候補リスト作成
 
-- 位置づけ: 本書は企画書（組織リポジトリ Issue #1。以下「企画書」）の「構成案」「完了の定義①〜⑩」を
-  実装可能な設計に落としたものである。企画書と本書が矛盾する場合は企画書が優先し、本書を改訂する。
-- 統合済み: 旧追補 `docs/architecture-addendum.md` の内容（旧追補 A1〜A11・付録）は本書へ統合済みであり、
-  現行仕様は本書一本で読む。追補ファイルは統合済みの記録として残すもので、現行仕様の記述としては読まない
-  （旧追補が「本体と矛盾する場合は追補が優先する」としていた優先関係は、本統合をもって解消する）。
+- 位置づけ: 本書は本システムの現行仕様である（構成・データ構造・公開インターフェース・
+  設定・判定ルール・実行手順）。
 - 記法: 型は Python の型注釈で書く。列挙型は全て `enum.StrEnum` とし、値は本書で確定した
   文字列そのものを使う（`str(値) == "値の文字列"` が成り立つことをテスト前提とする）。
   データ構造は原則 `dataclass(frozen=True)` とし、可変のリストではなく `tuple` で保持する
-  （本書が `list` と書いた箇所は、`tuple` 表記に読み替える。旧追補の総則を統合）。
-- 本書の範囲: 第1段階（志向プロファイルの設定ファイル化／情報源レジストリの確定／
-  応募候補リスト Spreadsheet の作成／初回リストの作成）を主対象とする。
-  第2段階は、Sheets 書込経路の修正・勤務地対応表の確定値更新・本番収集の試走1回まで
-  実施済みである。ただし第2段階の週次自動更新の cron 化は未実施（未作成）であり、
-  「第2段階」に関する記述で実施済み／未実施が分かれる箇所は、その区別に従って読む。
-  第3段階（自動応募）は実装しない。ただし、第3段階で必要になる列・値定義
-  （応募状態、自動応募可否、送信確定方法等）は第1段階のスキーマに含めて確定する。
-- 調査日: 本書の情報源調査は **2026-11-05** に実施した（§9）。
+  （本書が `list` と書いた箇所は、`tuple` 表記に読み替える）。
+- 本書の範囲: 志向プロファイルの設定ファイル化／情報源レジストリ／応募候補リスト
+  Spreadsheet／候補の収集・判定・提示・書込の現行仕様を対象とする。実行は手動のみで、
+  週次 cron は存在しない。自動応募は実装しない。ただし自動応募に必要になる列・値定義
+  （応募状態、自動応募可否、送信確定方法等）はスキーマに含めて確定する。
 - 秘匿原則: 本書・本リポジトリには、個人名・現職の具体名・起点駅名・メールアドレス・接続情報・
   認証情報を書かない。勤務地条件は「起点から現実的に通勤可能な東京都近辺」と一般化して表記する。
   設定の実値はローカルの gitignore 対象ファイルにのみ置き、リポジトリには伏せ字テンプレートのみを置く。
@@ -25,7 +18,7 @@
 
 ### 1.1 実行形態
 
-- 実行は手動実行（CLI を人が起動する）を基本とする。週次 cron は未作成であり、常駐プロセスも作らない。第2段階として本番収集の試走を1回実施済みだが、定期実行は開始していない。
+- 実行は手動実行（CLI を人が起動する）のみとする。週次 cron は未作成であり、常駐プロセスも作らない。定期実行は行わない。
 - 処理の流れ: 設定読込 → レジストリ読取と検証（フェイルクローズ）→ 禁止ワードスキャン →
   情報源ごとに取得（エラー時はその情報源をスキップし、リトライしない）→ 項目抽出・正規化 →
   判定（ハード除外／適合度付け）→ OpenWork 付与（レジストリゲート付き）→ ドライラン差分 →
@@ -53,19 +46,17 @@
 | `presentation.py` | 提示上限 N・控え管理、提示順ソート、繰り上げ再確認 | 候補群 → 提示／控えの振り分け |
 | `diff_guard.py` | ドライラン差分（追加・更新・掲載終了・提示/控え内訳）、大量変更ガード、レジストリ重大変更の検出 | 旧状態＋新状態 → `Diff`／`GuardResult` |
 | `evaluate.py` | 求人 1 件の単体判定入口（サンプル検証と共用。§3.16） | 求人 1 件 → `EvaluationResult` |
-| `pipeline.py` | 第1段階の手動実行パイプライン（上記の統括。失敗段ごとの扱いは §12） | `AppConfig` → 実行結果サマリ（件数・ID のみ） |
+| `pipeline.py` | 手動実行パイプライン（上記の統括。失敗段ごとの扱いは §12） | `AppConfig` → 実行結果サマリ（件数・ID のみ） |
 | `cli.py` | CLI 入口（`collect`（初回収集）／`dry-run`／`validate-config`／`validate-registry`） | コマンドライン |
 
-**情報源アダプタの共通インターフェース（旧追補付録を統合）:**
-
-情報源アダプタの共通インターフェース（`pipeline.run_collection` の `adapters` の値型）:
+**情報源アダプタの共通インターフェース**（`pipeline.run_collection` の `adapters` の値型）:
 
 ```python
 # sources/base.py
 class SourceAdapter(Protocol):
     def fetch(self, source: SourceEntry) -> list[RawPosting]: ...
         # 取得エラー時は SourceFetchError（errors.py）を送出する。
-        # pipeline は当該情報源をスキップし、リトライしない（本体 §12 手順5）。
+        # pipeline は当該情報源をスキップし、リトライしない（§12 手順5）。
 ```
 
 設計原則:
@@ -82,14 +73,13 @@ class SourceAdapter(Protocol):
 ```
 pyproject.toml            # [build-system] は setuptools、requires-python >= 3.11
 src/job_candidate_list/   # 上記モジュール群
-tests/                    # pytest（テスト係が完了の定義から先行作成）
+tests/                    # pytest
 config/
   templates/              # 伏せ字テンプレートのみを git 管理（profile.example.yaml 等）
   local/                  # 実値（gitignore 済み。.gitignore の config/local/ で担保）
 storage-spec/             # モックアップ／サンプル配置の正本（§11）
-docs/architecture.md      # 本書（旧追補を統合済み。現行仕様は本書一本で読む）
-docs/architecture-addendum.md  # 統合済みの記録（現行仕様ではない）
-docs/引き継ぎ.md           # 引き継ぎ資料（実体はこちらに一本化。§14 は参照のみ）
+docs/architecture.md      # 本書（現行仕様）
+docs/引き継ぎ.md           # 引き継ぎ資料（実体はこちら。§14 は参照のみ）
 ```
 
 - 整形: Black（line-length は Black 既定 88）、import 順: isort（`profile = "black"`）。
@@ -98,7 +88,7 @@ docs/引き継ぎ.md           # 引き継ぎ資料（実体はこちらに一�
 - 依存の上限: 実行時依存は YAML 読込・HTTP 取得・Google Sheets 接続に必要な最小限に絞る。
   有料 API・有料サービスに依存するライブラリ／SDK は入れない（費用 0 円の前提）。
 - テスト: pytest。外部 I/O は Protocol 境界でフェイクに差し替える。実ネットワーク・実シートへの
-  結合テストは第1段階の範囲外とし、検証は §11 のサンプルとフェイクで行う。
+  結合テストは対象外とし、検証は §11 のサンプルとフェイクで行う。
 
 ## 2. データ構造
 
@@ -138,12 +128,12 @@ docs/引き継ぎ.md           # 引き継ぎ資料（実体はこちらに一�
 | `source_type` / `source_url` | `SourceType` / `LinkCell` | `LinkCell = (display_text: str, url: str)`。表示テキストは `"求人ページ"` 固定 |
 | `openwork_score` / `openwork_url` / `openwork_fetched_on` | `float \| None` / `LinkCell \| None` / `date \| None` | 3 列はセットで埋めるか、セットで空欄（§6.7） |
 | `presentation` | `Presentation` | `提示済み`／`控え` |
-| `confirmed_on` | `date \| None` | 掲載確認日。`None` は未確認を表す（コンストラクタ仕様は本節末尾の統合部分を参照） |
+| `confirmed_on` | `date \| None` | 掲載確認日。`None` は未確認を表す（コンストラクタ仕様は本節末尾を参照） |
 | `status` | `CandidateStatus` | `新規`／`継続`／`更新あり`／`掲載終了` |
-| `apply_status` | `ApplyStatus` | `未応募`／`送信処理中`／`応募済み`／`応募失敗`／`結果不明`／`手動応募が必要`。第1段階では全件 `未応募` で初期化し、以後この段階では遷移させない（スキーマのみ確定） |
-| `applied_at` / `apply_result` | `datetime \| None` / `str \| None` | 第1段階では空欄（スキーマのみ確定） |
+| `apply_status` | `ApplyStatus` | `未応募`／`送信処理中`／`応募済み`／`応募失敗`／`結果不明`／`手動応募が必要`。全件 `未応募` で初期化し、現行は遷移させない（スキーマのみ確定） |
+| `applied_at` / `apply_result` | `datetime \| None` / `str \| None` | 現行は空欄（スキーマのみ確定） |
 
-#### `CandidateRecord` のコンストラクタ仕様（旧追補 A3 を統合。本体 §10.1 にも関係）
+#### `CandidateRecord` のコンストラクタ仕様（§10.1 にも関係）
 
 `models.py` の `dataclass(frozen=True)` として確定する。**必須引数は `candidate_id` のみ**とし、
 他は全てデフォルトを持つ（単体検証で ID だけからレコードを構築できるようにするため）。
@@ -158,10 +148,10 @@ docs/引き継ぎ.md           # 引き継ぎ資料（実体はこちらに一�
 | `position_norm` | `str` | `""` | |
 | `employment_type` | `str` | `""` | |
 | `salary_range_text` | `str \| None` | `None` | |
-| `location_text` | `str` | `"不明"` | 本体 §2.2 の「読み取れない場合は `"不明"`」をデフォルトとして確定 |
+| `location_text` | `str` | `"不明"` | §2.2 の「読み取れない場合は `"不明"`」をデフォルトとして確定 |
 | `location_result` | `LocationDivision` | `勤務地判定不能` | |
 | `remote_division` | `RemoteDivision` | `不明` | |
-| `fitness` | `Fitness` | `要確認` | 安全側のデフォルト。提示対象（高／中）にするには明示的に渡すこと（A8 参照） |
+| `fitness` | `Fitness` | `要確認` | 安全側のデフォルト。提示対象（高／中）にするには明示的に渡すこと（§3.12 参照） |
 | `fit_reasons` | `tuple[Reason, ...]` | `()` | |
 | `check_reasons` | `tuple[Reason, ...]` | `()` | |
 | `source_type` | `SourceType` | `公開求人` | |
@@ -170,11 +160,11 @@ docs/引き継ぎ.md           # 引き継ぎ資料（実体はこちらに一�
 | `openwork_url` | `LinkCell \| None` | `None` | |
 | `openwork_fetched_on` | `date \| None` | `None` | |
 | `presentation` | `Presentation` | `控え` | 「未提示」を表す初期値。提示済みへの遷移は提示処理が行う |
-| `presentation_key` | `tuple[int, int, int, str] \| None` | `None` | A8 で確定 |
-| `manual_judgment` | `str \| None` | `None` | 人手列「本人の判断」の読み取り専用スナップショット。シート読取時にのみ設定し、**書き込み対象には絶対に含めない**（本体 §3.11 の人手列保護と両立させるための保持場所） |
-| `confirmed_on` | `date \| None` | `None` | §2.2 の型は `date | None` とする（統合済み）。`None` は未確認を表し、Sheets 書込時（充足条件を満たすべき実候補）には非 `None` であることを gateway 側で検証エラーとする |
+| `presentation_key` | `tuple[int, int, int, str] \| None` | `None` | §3.12 で確定 |
+| `manual_judgment` | `str \| None` | `None` | 人手列「本人の判断」の読み取り専用スナップショット。シート読取時にのみ設定し、**書き込み対象には絶対に含めない**（§3.11 の人手列保護と両立させるための保持場所） |
+| `confirmed_on` | `date \| None` | `None` | §2.2 の型は `date | None` とする。`None` は未確認を表し、Sheets 書込時（充足条件を満たすべき実候補）には非 `None` であることを gateway 側で検証エラーとする |
 | `status` | `CandidateStatus` | `新規` | |
-| `apply_status` | `ApplyStatus` | `未応募` | 本体 §2.2 の初期化規則どおり |
+| `apply_status` | `ApplyStatus` | `未応募` | §2.2 の初期化規則どおり |
 | `applied_at` | `datetime \| None` | `None` | |
 | `apply_result` | `str \| None` | `None` | |
 
@@ -182,13 +172,13 @@ docs/引き継ぎ.md           # 引き継ぎ資料（実体はこちらに一�
 
 - `Reason = NamedTuple(text: str, rule_ids: tuple[str, ...])`
 - `LinkCell = NamedTuple(display_text: str, url: str)` の正本は `models.py` とする。
-  本体 §3.11 の `sheets_gateway.LinkCell` は `models.LinkCell` の再エクスポートであり、
+  §3.11 の `sheets_gateway.LinkCell` は `models.LinkCell` の再エクスポートであり、
   同一クラスを指す（両方の import 経路が使える）。
-- 列挙型（全て `StrEnum`、`models.py`）: `SourceType`（本体 §2.1 の 4 値。シート表示値
+- 列挙型（全て `StrEnum`、`models.py`）: `SourceType`（§2.1 の 4 値。シート表示値
   `ログイン必須（Secure Vault保存済み）`／`補助：届いたスカウト` への変換は gateway の責務とし、
   型の値は `公開求人`／`企業採用ページ`／`ログイン必須`／`補助スカウト` で固定）、
   `LocationDivision`、`RemoteDivision`、`Fitness`、`Presentation`、`CandidateStatus`、
-  `ApplyStatus`（値はいずれも本体 §2.2／§6.3／§10.1 の文字列どおり）。
+  `ApplyStatus`（値はいずれも§2.2／§6.3／§10.1 の文字列どおり）。
 
 ---
 
@@ -214,24 +204,24 @@ def validate_config(cfg: AppConfig) -> list[str]: ...
     # 検証のみ（例外を投げない）。問題の説明文字列のリストを返す。正常時は空リスト。
 ```
 
-#### Config サブ設定オブジェクトの生成方法（旧追補 A2 を統合。本体 §4 にも関係）
+#### Config サブ設定オブジェクトの生成方法（§4 にも関係）
 
-#### A2.1 置き場と共通規則
+#### 置き場と共通規則
 
 - サブ設定クラスは全て `config.py` に置く `dataclass(frozen=True)` とする。
-  各 `judge_*`／`fitness` 等の引数型はこのクラスを指す（本体 §3.4〜§3.9 の
+  各 `judge_*`／`fitness` 等の引数型はこのクラスを指す（§3.4〜§3.9 の
   `RemoteConfig` 等の型名は本節のクラス名と同一である）。
 - 各クラスは共通の生成方法 **`from_dict(cls, data: Mapping[str, Any]) -> Self`**（classmethod）を持つ。
   - キー名は YAML の葉キー名と完全一致させる（下表のフィールド名どおり）。
   - YAML の list は `tuple` に変換して保持する。未知のキーは `ConfigError`、
-    必須キーの欠落・型不一致も `ConfigError`（キー名をメッセージに含める。本体 §3.1 と同じ）。
+    必須キーの欠落・型不一致も `ConfigError`（キー名をメッセージに含める。§3.1 と同じ）。
   - 直接のキーワード引数による構築（通常の dataclass コンストラクタ）も常時可能とする。
     テストは `DutyConfig.from_dict(judge_dict["duty"])` の形、またはキーワード構築の
     どちらでも同じオブジェクトを作れる。
-- `load_config(profile_path, judge_path, local_path)`（本体 §3.1 のシグネチャは不変）は、
+- `load_config(profile_path, judge_path, local_path)`（§3.1 のシグネチャは不変）は、
   3 ファイルを読み、各 `from_dict` で検証してから `AppConfig` を組み立てる。
 
-#### A2.2 フィールド一覧（確定）
+#### フィールド一覧
 
 | クラス | フィールド（全てキーワード可） |
 |---|---|
@@ -239,7 +229,7 @@ def validate_config(cfg: AppConfig) -> list[str]: ...
 | `NormalizeConfig` | `tracking_params: tuple[str, ...] = ()` |
 | `DutyConfig` | `target_sections: tuple[str, ...]`, `upstream_keywords: tuple[str, ...]`, `impl_keywords: tuple[str, ...]`, `title_assist_keywords: tuple[str, ...] = ()`, `primary_markers: tuple[str, ...] = ()`, `mixed_handling: str = "check"` |
 | `LocationConfig` | `target_sections: tuple[str, ...]`, `whitelist_file: Path \| None = None`（勤務地対応表は別引数で渡すため、本フィールドは実ファイル読込時の参照用。`from_dict` では欠落を許す） |
-| `RemoteConfig` | `rules: tuple[RemoteRule, ...]`。`RemoteRule` は `dataclass(frozen=True)` で `pattern: str`, `division: str`（値は本体 §6.3 の閉じた 6 区分のいずれか。範囲外は `from_dict` 時点で `ConfigError`）。`RemoteRule.from_dict({"pattern": ..., "division": ...})` を持つ |
+| `RemoteConfig` | `rules: tuple[RemoteRule, ...]`。`RemoteRule` は `dataclass(frozen=True)` で `pattern: str`, `division: str`（値は§6.3 の閉じた 6 区分のいずれか。範囲外は `from_dict` 時点で `ConfigError`）。`RemoteRule.from_dict({"pattern": ..., "division": ...})` を持つ |
 | `EnglishConfig` | `target_sections: tuple[str, ...]`, `mandatory_sections: tuple[str, ...] = ()`, `required_phrases: tuple[str, ...] = ()`, `welcome_phrases: tuple[str, ...] = ()`, `level_phrases: tuple[str, ...] = ()` |
 | `HardConfig` | `non_regular_keywords: tuple[str, ...] = ()`, `out_of_domain_keywords: tuple[str, ...] = ()`, `business_form_keywords: tuple[str, ...] = ()`, `target_domain_keywords: tuple[str, ...] = ("データ", "AI", "機械学習")`, `strong_business_form_keywords: tuple[str, ...] = ("システムインテグレーション事業", "SI事業")` |
 | `FitnessConfig` | `salary_check_threshold_jpy: int`, `high_threshold: int`, `domain_match_points: int = 0`, `salary_points: int = 0`, `condition_points: int = 0`, `location_points: int = 0`, `salary_target_jpy: int \| None = None`, `target_domains: tuple[str, ...] = ()`, `business_form_weak_keywords: tuple[str, ...] = ("常駐", "コンサルティング", "受託", "SI")` |
@@ -253,16 +243,16 @@ def validate_config(cfg: AppConfig) -> list[str]: ...
 | `AppConfig` | `profile: ProfileConfig`, `normalize: NormalizeConfig`, `duty: DutyConfig`, `location: LocationConfig`, `remote: RemoteConfig`, `english: EnglishConfig`, `hard: HardConfig`, `fitness: FitnessConfig`, `presentation: PresentationConfig`, `validity: ValidityConfig`, `collection: CollectionConfig`, `guard: GuardConfig`, `openwork: OpenworkConfig`, `auto_apply: AutoApplyConfig`, `local: LocalConfig` |
 
 - `AppConfig.from_dicts(profile_data: Mapping, judge_data: Mapping, local_data: Mapping) -> AppConfig`
-  （classmethod）を確定する。`judge_data` は本体 §4.2 のドットキーをネストした dict
+  （classmethod）を確定する。`judge_data` は§4.2 のドットキーをネストした dict
   （`judge_data["duty"]["upstream_keywords"]` の形）を受け取り、各サブ設定へ振り分ける。
   ファイルを読まない単体検証はこの入口を使う。
 - 適合度付けに必要なプロファイル由来の値の受け渡し: `from_dicts`／`load_config` は
   `FitnessConfig.salary_target_jpy` が未設定（`None`）の場合に `profile.salary_target_jpy` を、
   `FitnessConfig.target_domains` が空の場合に `profile.target_domains` を、それぞれ補って
-  格納する。これにより本体 §3.9 の `assign_fitness` のシグネチャ（`cfg: FitnessConfig`）を
-  変えずに、本体 §6.6 の「年収目安との距離」「領域との一致度」を評価できる。
+  格納する。これにより§3.9 の `assign_fitness` のシグネチャ（`cfg: FitnessConfig`）を
+  変えずに、§6.6 の「年収目安との距離」「領域との一致度」を評価できる。
 - `DutyConfig.mixed_handling` は `"check"` 以外を `from_dict` 時点で `ConfigError` とする
-  （本体 §4.2 の確定どおり）。
+  （§4.2 の確定どおり）。
 
 ### 3.2 正規化・候補 ID（`normalize.py`）
 
@@ -306,16 +296,16 @@ def normalize_remote_frequency(raw: str | None, cfg: RemoteConfig) -> RemoteResu
     # - 同義表記は正規表現パターンの選択肢（`|`）で吸収する（週3日リモート＝週2日出社 → 出社週2〜3日）。
     #   変換ロジック（日数の数値計算等）は実装しない。変換規則は設定 `remote.rules`（正規表現 → 区分）の
     #   順序評価で実装し、直書きしない。最初に一致した規則の区分を採用し、一致なしは `不明`。
-    #   `RemoteResult.raw_found` には一致部分文字列を格納する（詳細は本節末尾の統合部分）。
+    #   `RemoteResult.raw_found` には一致部分文字列を格納する（詳細は本節末尾）。
     # - 「月1回出社」等の部分出社はフルリモートに含めない（出社週1日以下側へ倒す）。
 ```
 
-#### `remote.rules` の同義変換の表現方法（旧追補 A11 を統合。本体 §4.2、§6.3 にも関係）
+#### `remote.rules` の同義変換の表現方法（§4.2、§6.3 にも関係）
 
 **確定: 同義表記は正規表現パターンの選択肢（`|`）で吸収する。変換ロジック
 （日数の数値計算等）は実装しない。**
 
-- `remote.rules` は `list[{pattern, division}]`（A2.2 の `RemoteRule`）の順序評価とし、
+- `remote.rules` は `list[{pattern, division}]`（§3.1 の `RemoteRule`）の順序評価とし、
   `normalize_remote_frequency` は規則を先頭から評価し、`re.search(pattern, raw)` が
   最初に一致した規則の `division` を採用する。一致が無ければ `不明`（`REMOTE-UNKNOWN`）。
 - 「週3日リモート＝週2日出社」のような同義は、同一区分の規則の pattern に選択肢として
@@ -324,8 +314,8 @@ def normalize_remote_frequency(raw: str | None, cfg: RemoteConfig) -> RemoteResu
 - 規則の記述順序は「具体的な表記 → 一般的な表記」とし、より具体的な同義規則を
   一般規則より前に置く運用を、テンプレート側のコメントで案内する（コードは順序を解釈しない）。
 - `RemoteResult.raw_found` には一致した部分文字列（`re.search` の `group(0)`）を格納し、
-  原文表記が適合理由に残る仕組み（本体 §5.2 `REMOTE-NORMALIZED`）を担保する。
-- 同義表記の追加は設定変更のみで対応し、コード変更を要しない（完了の定義① の構造を維持する）。
+  原文表記が適合理由に残る仕組み（§5.2 `REMOTE-NORMALIZED`）を担保する。
+- 同義表記の追加は設定変更のみで対応し、コード変更を要しない。
 
 ---
 
@@ -366,7 +356,7 @@ def judge_location(posting: RawPosting, remote: RemoteResult,
     # - 外部 API・経路計算は使わない。本関数はネットワークアクセスを行わない。
 ```
 
-#### 勤務地対応表オブジェクト（旧追補 A2.3 を統合。本体 §13 にも関係）
+#### 勤務地対応表オブジェクト（§13 にも関係）
 
 ```python
 # models.py（judge_location.py から再エクスポートする）
@@ -388,7 +378,7 @@ class LocationWhitelist:
         # municipalities のいずれかの municipality と完全一致すれば True。
 ```
 
-`load_whitelist(path)`（本体 §3.6）は YAML を読み `LocationWhitelist.from_dict` に委譲する。
+`load_whitelist(path)`（§3.6）は YAML を読み `LocationWhitelist.from_dict` に委譲する。
 
 ---
 
@@ -428,7 +418,7 @@ def judge_hard_exclusions(posting: RawPosting, cfg: HardConfig) -> list[Exclusio
     # （不明を除外に倒さない。fitness 側で要確認理由に残す）。
 ```
 
-雇用形態判定の正の仕組みは、肯定形リスト `profile.employment_allowed` である（C-144）。
+雇用形態判定の正の仕組みは、肯定形リスト `profile.employment_allowed` である。
 雇用形態が未記載の場合と、明示されているが肯定形リストに含まれない場合は、いずれも
 ハード除外には倒さず、fitness 側（§3.9 規則 7）で要確認に倒す。否定形キーワード
 （`hard.non_regular_keywords`）は、明示された既知の非正規形態に対する補助的な
@@ -467,7 +457,7 @@ def assign_fitness(posting: RawPosting, duty: DutyResult, location: LocationResu
     #   掲載確認日の降順用負値, candidate_id) のタプルとし、ソートで毎回再現可能にする。
 ```
 
-提示順キー（`presentation_key`）の保持場所と型の確定は §3.12 末尾の統合部分（旧追補 A8.2）を参照する。
+提示順キー（`presentation_key`）の保持場所と型は §3.12 末尾を参照する。
 
 ### 3.10 レジストリ読取・検証（`registry.py`）― §8 が正
 
@@ -477,7 +467,7 @@ def parse_registry(rows: Sequence[Sequence[str]]) -> Registry: ...
 def validate_registry(reg: Registry) -> list[RegistryIssue]: ...
     # RegistryIssue = (source_id: str | None, kind: IssueKind, detail: str)
     # IssueKind: schema（全体停止）／source_blocked（当該情報源のみフェイルクローズ）／
-    #            major_change（第2段階以降のドライラン用。第1段階では検出のみ）
+    #            major_change（現行は検出のみ）
 def is_collectable(source: SourceEntry) -> bool: ...
     # 人手列「対象化の最終判断」が 対象 系の値であり、かつ自動列の検証をすべて通過した場合のみ True。
     # 値が閉じた集合の範囲外・空欄の行は False（フェイルクローズ）。
@@ -486,20 +476,20 @@ def openwork_gate(reg: Registry) -> bool: ...
     # 行が無い・対象外・値不正の場合は False（点数付与のみ停止し、収集は継続する）。
 ```
 
-#### `Registry`／`SourceEntry`／`RegistryIssue` の属性名（旧追補 A6 を統合。本体 §8 にも関係）
+#### `Registry`／`SourceEntry`／`RegistryIssue` の属性名（§8 にも関係）
 
-テスト係の想定どおり、**`Registry.sources` を正式な属性名として確定する**（差分なし）。
+**`Registry.sources` を正式な属性名とする。**
 
 ```python
 # registry.py
 @dataclass(frozen=True)
-class MeasuredResult:      # 実測結果セルのパース結果（本体 §8.3）
+class MeasuredResult:      # 実測結果セルのパース結果（§8.3）
     result: str            # 成功／失敗／未実施／対象外（ログイン不要）
     method: str            # 取得方法の値文字列
     checked_on: date | None
 
 @dataclass(frozen=True)
-class RiskAssessment:      # リスク評価セルのパース結果（本体 §8.3）
+class RiskAssessment:      # リスク評価セルのパース結果（§8.3）
     level: str             # 低／中／高／未評価
     basis: str             # 根拠の文字列
     checked_on: date | None
@@ -544,7 +534,7 @@ class RegistryIssue:
 - `parse_registry(rows)` は行 → `SourceEntry` への変換と §8.3 形式のパースまでを行い、
   閉じた値の範囲外・形式不正は例外にせず保持し、`validate_registry` が
   `RegistryIssue(kind=SOURCE_BLOCKED)` として返す（全体停止はヘッダ不一致の
-  `RegistrySchemaError` のみ。本体 §3.10／§8.4 と同じ振り分け）。
+  `RegistrySchemaError` のみ。§3.10／§8.4 と同じ振り分け）。
 - `openwork_gate(reg)` の対象行は `source_id == "OpenWork"` の行とし、定数
   `OPENWORK_SOURCE_ID: str = "OpenWork"`（`registry.py`）を公開する。
 
@@ -575,9 +565,9 @@ MANUAL_COLUMNS_CANDIDATE: tuple[str, ...] # 人手列の列名一覧（書込禁
 `HYPERLINK("実URL", "表示テキスト")` 相当のリンク付きセルとして記録し、読み戻しでは
 表示テキストと実 URL の対応を検証する。生 URL をセル文字列として書いてはならない。
 
-注: `LinkCell` の正本は `models.py` とする。本節の `sheets_gateway.LinkCell` は `models.LinkCell` の再エクスポートであり、同一クラスを指す（旧追補 A3 を統合）。
+注: `LinkCell` の正本は `models.py` とする。本節の `sheets_gateway.LinkCell` は `models.LinkCell` の再エクスポートであり、同一クラスを指す。
 
-#### `SheetsGateway` の具象クラス（旧追補 A5 を統合）
+#### `SheetsGateway` の具象クラス
 
 具象クラス名を **`GoogleSheetsGateway`**（`sheets_gateway.py`）で確定する。
 
@@ -595,7 +585,7 @@ class GoogleSheetsGateway:  # SheetsGateway Protocol の具象実装
     def __init__(self, backend: SheetsBackend,
                  sheet_names: Mapping[str, str] | None = None) -> None: ...
         # sheet_names のキーは "candidates" / "registry" / "exclusions"。
-        # None の場合は SheetNamesConfig のデフォルト値（A2.2）を使う。
+        # None の場合は SheetNamesConfig のデフォルト値（§3.1）を使う。
 ```
 
 - 人手列保護の実クラス検証は `GoogleSheetsGateway` に対して行う: `upsert_candidates` が
@@ -603,11 +593,18 @@ class GoogleSheetsGateway:  # SheetsGateway Protocol の具象実装
   `MANUAL_COLUMNS_CANDIDATE` の列位置へは書き込みデータを渡さない。
 - 実 API 接続用の backend 実装クラス名は `GoogleApiSheetsBackend` とする
   （コンストラクタは `(spreadsheet_id: str)`。Sheets アクセスは
-  `/opt/hatch/bin/hatch_gws_cli` 経由の CLI 一本とする（C-137））。
+  `/opt/hatch/bin/hatch_gws_cli` 経由の CLI 一本とする）。
+- CLI 経路の呼出形式: 書込はタブ（範囲）を指定できる `spreadsheets values append`
+  （`--params` で spreadsheetId／range／valueInputOption=USER_ENTERED を指定し、
+  `--json` で `{"values": [[...]]}` を渡す。複数行は 1 回の append にまとめる。
+  `+append` はタブ指定手段がなく先頭タブへ流れるため使わない）。読取（リンク）は
+  `spreadsheets values get` を valueRenderOption=FORMULA で呼び、
+  `=HYPERLINK("url","text")` 数式から実 URL を (行, 列) 辞書に復元する
+  （数式内のエスケープ `""` → `"` に対応）。
 - テスト側の `FakeSheetsGateway`（conftest）は Protocol に対するフェイクとして従来どおり有効であり、
   具象クラス名の確定によって置き換えない。
 
-付随確定: `append_exclusions` の行型（本体 §3.11、§10.3）。
+付随確定: `append_exclusions` の行型（§3.11、§10.3）。
 
 ```python
 # models.py
@@ -641,9 +638,9 @@ def recheck_held(candidate: CandidateRecord, latest: RawPosting | None,
     # HeldDecision: promote（繰り上げ可）／keep_held（控えのまま）／closed（掲載終了）／to_check（要確認へ）
 ```
 
-#### `recheck_held` の `refitness` 引数の型と提示順キーの保持場所（旧追補 A8 を統合。本体 §3.9、§6.6 にも関係）
+#### `recheck_held` の `refitness` 引数の型と提示順キーの保持場所（§3.9、§6.6 にも関係）
 
-#### A8.1 `refitness` の型（確定）
+#### `refitness` の型
 
 ```python
 # presentation.py
@@ -653,24 +650,24 @@ def recheck_held(candidate: CandidateRecord, latest: RawPosting | None,
 
 - 型は **`FitnessResult | None`** とする（`Fitness` 単体ではない）。
   理由・ルール ID を含む再判定結果一式を受け取るためである。
-- 引数の意味と戻り値の確定（本体 §3.12 の 3 点確認の具体化）:
+- 引数の意味と戻り値の確定（§3.12 の 3 点確認の具体化）:
   - `latest is None` → `closed`（掲載終了。再判定の有無によらない）
   - `candidate.status == 掲載終了` → `closed`
   - `latest` があり `refitness is None` → `to_check`（再判定なしでは繰り上げない安全側）
   - `candidate.manual_judgment == "対象外"` → `keep_held`（本人の判断が対象外の間は繰り上げない）
   - `refitness.fitness == 要確認` → `to_check`
   - `refitness.fitness in (高, 中)` かつ上記いずれにも該当しない → `promote`
-- `HeldDecision` は `presentation.py` の `StrEnum` で、値は本体 §3.12 どおり
+- `HeldDecision` は `presentation.py` の `StrEnum` で、値は§3.12 どおり
   `promote`／`keep_held`／`closed`／`to_check` とする。
 
-#### A8.2 提示順キー（`presentation_key`）の保持場所（確定）
+#### 提示順キー（`presentation_key`）の保持場所
 
-- **候補側（`CandidateRecord.presentation_key`）に保持する**ことを確定する（A3 のフィールド）。
+- **候補側（`CandidateRecord.presentation_key`）に保持する**ことを確定する（§2.2 のフィールド）。
   `assign_fitness` が生成した `FitnessResult.presentation_key` を、pipeline が
   レコード生成時にそのままコピーして保持する。
 - `FitnessResult.presentation_key` の型は `tuple[int, int, int, str]` で、要素は
   `(適合度順位, -機械的一致度, -掲載確認日の toordinal(), candidate_id)` とする
-  （適合度順位は 高=0／中=1／要確認=2。昇順ソートで本体 §6.6 の提示順になる）。
+  （適合度順位は 高=0／中=1／要確認=2。昇順ソートで§6.6 の提示順になる）。
 - `split_presentation` のソート規則（確定）:
   - 対象は `fitness in (高, 中)` かつ `status != 掲載終了` かつ
     `manual_judgment != "対象外"` かつ `presentation == 控え`（＝未提示）の候補とする。
@@ -697,11 +694,11 @@ def mass_change_guard(diff: Diff, existing_count: int, cfg: GuardConfig) -> Guar
     #  - 掲載終了件数が既存件数に対する比率 `guard.max_close_ratio` を超える
     #  - 変更合計（追加+更新+終了）が `guard.max_total_change_ratio` を超える
     #  - レジストリ重大変更（情報源の追加／自動応募可否の変更／送信確定方法の変更）が含まれる
-    #    場合は、第3段階相当の自動応募を止める対象として必ず stop ではなく
-    #    「自動応募のみ停止フラグ」を Diff 側に立てる（第1段階では記録のみ）。
+    #    場合は、自動応募を止める対象として必ず stop ではなく
+    #    「自動応募のみ停止フラグ」を Diff 側に立てる（現行は記録のみ）。
 ```
 
-#### `Diff`／`GuardResult` の確定形（旧追補 A4.3 を統合）
+#### `Diff`／`GuardResult` の確定形
 
 ```python
 # diff_guard.py
@@ -717,7 +714,7 @@ class Diff:
     held_closed: tuple[str, ...]
     check_only_count: int
     registry_changes: tuple[str, ...]   # 変更内容の区分文字列（情報源名＋変更種別）のみ
-    auto_apply_stop: bool = False       # 本体 §3.13 の「自動応募のみ停止フラグ」
+    auto_apply_stop: bool = False       # §3.13 の「自動応募のみ停止フラグ」
 
 class GuardStatus(StrEnum):
     OK = "ok"
@@ -756,10 +753,9 @@ def attach_openwork(candidate: CandidateRecord, provider: OpenworkProvider,
     #   以後の付与を全件停止する（求人の収集・判定は継続）。
 ```
 
-#### OpenWork 再取得失敗時の前回値保持の責務（旧追補 A7 を統合。本体 §6.7、§5.5 にも関係）
+#### OpenWork 再取得失敗時の前回値保持の責務（§6.7、§5.5 にも関係）
 
-**保持の責務は `attach_openwork` 側に置く**ことを確定し、引数を次のとおり改める
-（§3.14 のシグネチャは本統合でこの形に確定する）。
+**保持の責務は `attach_openwork` 側に置く**。シグネチャは次のとおりとする。
 
 ```python
 # openwork.py
@@ -772,18 +768,18 @@ def attach_openwork(candidate: CandidateRecord, provider: OpenworkProvider,
   `openwork_fetched_on` から pipeline が組み立てて渡す）。pipeline 側の責務は
   「既存行があれば `previous` を渡すこと」と「`OpenworkBlocked` 送出時は既存行の
   3 項目を書き換えないこと」の 2 点に限る。
-- 失敗時の戻り値（本体 §6.7 の「前回値を保持し取得日は前回のまま」の具体化）:
+- 失敗時の戻り値（§6.7 の「前回値を保持し取得日は前回のまま」の具体化）:
   - 突合不能（`OW-NOMATCH`）／存在しない（`OW-NOTFOUND`）／取得エラー（`OW-UNAVAILABLE`）の
     いずれでも、`previous` が非 `None` の値を持つ場合は、その値をそのまま返し、
     `rule_ids` には当該失敗のルール ID を格納する（保持したことは `fetched_on` が
     前回の日付のままであることで判別する。新規ルール ID は追加しない）。
-  - `previous` が無い／全て `None` の場合は、本体 §3.14 どおり 3 項目すべて `None` を返す。
+  - `previous` が無い／全て `None` の場合は、§3.14 どおり 3 項目すべて `None` を返す。
   - ゲート無効（`gate_enabled=False`）の場合は provider を一切呼ばず、
     `previous` があればその値を `rule_ids=["OW-DISABLED"]` で返し、無ければ
     3 項目 `None` を `rule_ids=["OW-DISABLED"]` で返す。
   - `OpenworkBlocked`（403／429 等）は従来どおり例外として送出し、戻り値では表さない。
     例外の正本は `errors.py` とし、`openwork.py` からも同名で再エクスポートする（両経路可）。
-- 付随確定: 突合入力の型（本体 §3.14）。
+- 付随確定: 突合入力の型（§3.14）。
 
 ```python
 # openwork.py
@@ -797,7 +793,7 @@ class OpenworkCompanyRef:
 ```
 
   成功時の戻り値は `OpenworkResult(score=ref.score, url=LinkCell("OpenWork", ref.url),
-  fetched_on=date.today(), rule_ids=[])` とする。突合は本体 §3.14 どおり、
+  fetched_on=date.today(), rule_ids=[])` とする。突合は§3.14 どおり、
   正規化会社名の一致に加え `location_text`／`industry_text` が候補側の公開情報と
   矛盾しない候補がちょうど 1 件の場合のみ成功とする。
 
@@ -814,9 +810,9 @@ def run_collection(cfg: AppConfig, gateway: SheetsGateway,
     # 段ごとの失敗時の扱いは §12 に従う。dry_run=True の場合はシートへ書き込まない。
 ```
 
-#### 通知文生成の公開インターフェースと `RunSummary`（旧追補 A4 を統合。§12 手順13、完了の定義⑤にも関係）
+#### 通知文生成の公開インターフェースと `RunSummary`（§12 手順13 にも関係）
 
-#### A4.1 `RunSummary` のフィールド構成（確定）
+#### `RunSummary` のフィールド構成
 
 `pipeline.py` の `dataclass(frozen=True)` として確定する。**件数と候補 ID・情報源名のみ**を持ち、
 会社名・ポジション名・年収等の詳細フィールドは持たない（フィールド名に `company`／
@@ -831,15 +827,15 @@ def run_collection(cfg: AppConfig, gateway: SheetsGateway,
 | `added_count` / `updated_count` / `closed_count` | `int` |
 | `excluded_count` | `int` |
 | `check_only_count` | `int`（要確認の総数） |
-| `check_counts_by_reason` | `tuple[tuple[str, int], ...]`（理由区分名 → 件数。本体 §6.2 の区分別件数。区分名は `主務`／`英語`／`勤務地・リモート`／`その他`） |
+| `check_counts_by_reason` | `tuple[tuple[str, int], ...]`（理由区分名 → 件数。§6.2 の区分別件数。区分名は `主務`／`英語`／`勤務地・リモート`／`その他`） |
 | `presented_count` | `int` |
 | `held_new_count` / `held_promoted_count` / `held_remaining_count` / `held_closed_count` | `int` |
-| `openwork_disabled_count` | `int`（本体 §12 手順8 の `OW-DISABLED` 集計） |
+| `openwork_disabled_count` | `int`（§12 手順8 の `OW-DISABLED` 集計） |
 | `source_names` | `tuple[str, ...]`（収集対象とした情報源名） |
 | `skipped_source_names` | `tuple[str, ...]`（取得エラーでスキップした情報源名） |
 | `added_ids` / `updated_ids` / `closed_ids` / `excluded_ids` | `tuple[str, ...]`（候補 ID／除外 ID のみ） |
 
-#### A4.2 通知文生成関数（確定）
+#### 通知文生成関数
 
 ```python
 # pipeline.py
@@ -861,13 +857,13 @@ def build_notification_text(summary: RunSummary, list_url: str) -> str: ...
 - `stopped_by_guard=True` の場合は 1 行目を
   `応募候補リストの更新を停止しました（大量変更ガード・<日付>）` とし、
   件数行はドライラン差分の件数をそのまま使う。本実行が行われていないことを文面で判別できる形にする。
-- 通知文に対しても禁止ワードスキャン（本体 §3.3）の対象に含めるかは従来どおり
+- 通知文に対しても禁止ワードスキャン（§3.3）の対象に含めるかは従来どおり
   運用側の手順に従い、本関数はスキャンを行わない（生成と検査を分離する）。
 
-#### 3.16 サンプル検証用の判定入口（旧追補 A1 を統合。§11.2、§12 手順7にも関係）
+#### 3.16 サンプル検証用の判定入口（§11.2、§12 手順7にも関係）
 
-本体 §3 に欠けていた「求人 1 件を単体で判定する公開入口」を、新規モジュール
-`src/job_candidate_list/evaluate.py` に確定する。Sheets・ネットワークには一切触れない
+求人 1 件を単体で判定する公開入口を、モジュール
+`src/job_candidate_list/evaluate.py` に置く。Sheets・ネットワークには一切触れない
 純粋関数のみで構成し、検証用サンプル（storage-spec/samples/）の単体検証と、
 パイプライン §12 手順7 の判定段の共通実装の両方から使う。
 
@@ -892,10 +888,10 @@ def evaluate_sample_text(text: str, cfg: AppConfig, whitelist: LocationWhitelist
 | 会社名 | `company_raw` | 原文のまま |
 | ポジション名 | `position_raw` | 原文のまま |
 | 雇用形態 | `employment_raw` | 原文のまま |
-| 情報源種別 | `source_type` | 値文字列を `SourceType`（本体 §2.1 の閉じた集合）として解釈する |
+| 情報源種別 | `source_type` | 値文字列を `SourceType`（§2.1 の閉じた集合）として解釈する |
 | 情報源URL | `raw_url` | 原文のまま（表示テキストではない） |
 | 想定年収 | `salary_raw` / `salary_min_jpy` / `salary_max_jpy` | 原文を `salary_raw` に保持。`(\d+(?:\.\d+)?)万円` の出現が 2 件なら小さい方を min・大きい方を max（円換算）、1 件なら min == max == その値、0 件なら両方 `None` |
-| 勤務地（ヘッダ） | `location_raw` | 原文のまま（勤務地判定の根拠には使わない。判定根拠はセクション側のみ＝本体 §3.6） |
+| 勤務地（ヘッダ） | `location_raw` | 原文のまま（勤務地判定の根拠には使わない。判定根拠はセクション側のみ＝§3.6） |
 | リモート頻度（原文） | `remote_raw` | 原文のまま。ただし値が `記載なし` で始まる場合は「記載なし」の宣言として `None` に変換する |
 | `## 見出し` セクション群 | `sections` | 見出し文字列 → 本文（前後の空白を除去）の dict。全セクションを保持する |
 | `## 会社概要` | `company_overview_raw` | `sections["会社概要"]` と同値。無い場合は `None` |
@@ -919,7 +915,7 @@ class EvaluationKind(StrEnum):
 class EvaluationResult:
     posting: RawPosting
     hard_excluded: bool
-    exclusions: tuple[ExclusionHit, ...]        # judge_hard.py の型（本体 §3.8）
+    exclusions: tuple[ExclusionHit, ...]        # judge_hard.py の型（§3.8）
     duty: DutyResult
     english: EnglishResult
     remote: RemoteResult
@@ -934,7 +930,7 @@ class EvaluationResult:
 
 #### 3.16.3 `evaluate_posting` の評価順序とハード除外の集約
 
-評価順序は本体 §12 手順7 と同一に固定する。
+評価順序は§12 手順7 と同一に固定する。
 
 1. `normalize_remote_frequency(posting.remote_raw, cfg.remote)` → `RemoteResult`
 2. `judge_location(posting, remote, whitelist, cfg.location)` → `LocationResult`
@@ -946,12 +942,12 @@ class EvaluationResult:
    - 手順5 のヒットが 1 件以上
    - `duty.outcome == impl` → `ExclusionHit("JOB-IMPL-HARD", duty の理由, "duty.impl_keywords")` を追加
    - `english.outcome == required` → `ExclusionHit("ENG-HARD", english の理由, "english.required_phrases")` を追加
-7. ハード除外でない場合のみ `assign_fitness(...)`（本体 §3.9、引数は A8 の確定を含む）を
+7. ハード除外でない場合のみ `assign_fitness(...)`（§3.9、引数は §3.12 の確定を含む）を
    呼び、`fitness_result` に格納する。
 8. `rule_ids` は duty → english → hard（手順5） → remote → location → fitness 由来
    （`SAL-*`／`BIZFORM-UNKNOWN` 等）の順に、重複を除いて連結したものとする。
 
-`ExclusionHit` の確定形（本体 §3.8 の具体化）: `judge_hard.py` の
+`ExclusionHit` の確定形（§3.8 の具体化）: `judge_hard.py` の
 `ExclusionHit = NamedTuple(rule_id: str, reason: str, config_ref: str)` とする。
 
 ---
@@ -968,9 +964,9 @@ class EvaluationResult:
 | `last_updated` | date | プロファイル最終更新日。週次通知に添える材料 |
 | `target_domains` | list[str] | 志向領域のキーワード群（データ／AI 領域を表す一般化キーワード） |
 | `salary_target_jpy` | int | 年収目安（円／年） |
-| `employment_allowed` | list[str] | 許可する雇用形態（肯定形リスト）。初期値は正社員のみ。配線済み（C-144）: 雇用形態が未記載／リスト外の場合は fitness 側で要確認に倒す（ハード除外ではない）。否定形キーワードに一致する明示形態はハード除外が優先する |
-| `remote_preference` | str \| null | リモート希望頻度。初期値は未指定（null）。未実装（予約）: 希望頻度が指定された時点で適合条件化する。現行は値を入れても判定は変わらない |
-| `location_hard_exclude` | bool | 勤務地条件のハード除外化。初期値 false（本人の指定があった場合のみ true）。未実装（予約）: 現行は true でもハード除外にならない |
+| `employment_allowed` | list[str] | 許可する雇用形態（肯定形リスト）。初期値は正社員のみ。雇用形態が未記載／リスト外の場合は fitness 側で要確認に倒す（ハード除外ではない）。否定形キーワードに一致する明示形態はハード除外が優先する |
+| `remote_preference` | str \| null | リモート希望頻度。初期値は未指定（null）。未実装: 現行は値を入れても判定は変わらない |
+| `location_hard_exclude` | bool | 勤務地条件のハード除外化。初期値 false（本人の指定があった場合のみ true）。未実装: 現行は true でもハード除外にならない |
 | `search_queries` | list[str] | 収集に使う一般化キーワードの組み合わせ。個人情報・現職の具体名を含めない。実行前に禁止ワードスキャンを通す |
 
 ### 4.2 `judge.local.yaml`（判定設定。構造はテンプレートと同一、値の一部はローカル保持）
@@ -995,12 +991,12 @@ class EvaluationResult:
 | `hard.non_regular_keywords` | list[str] | 正社員でない雇用形態を表す表現（業務委託／派遣／契約社員 等） |
 | `hard.out_of_domain_keywords` | list[str] | 領域外を表す表現 |
 | `hard.business_form_keywords` | list[str] | SIer・コンサル寄りの事業形態を表す表現（判定は公開情報に基づく） |
-| `hard.target_domain_keywords` | list[str] | 対象領域の判定に使うキーワード群。省略時は既定値（データ／AI／機械学習）が使われる（C-064） |
-| `hard.strong_business_form_keywords` | list[str] | 事業形態を単独でも明確とみなす強い表現。省略時は既定値（システムインテグレーション事業／SI事業）が使われる（C-064） |
+| `hard.target_domain_keywords` | list[str] | 対象領域の判定に使うキーワード群。省略時は既定値（データ／AI／機械学習）が使われる |
+| `hard.strong_business_form_keywords` | list[str] | 事業形態を単独でも明確とみなす強い表現。省略時は既定値（システムインテグレーション事業／SI事業）が使われる |
 | `fitness.salary_check_threshold_jpy` | int | 年収上限がこの値を下回る場合は要確認（SAL-BELOW）。目安に対する「大幅に下回る」の閾値 |
 | `fitness.high_threshold` | int | 機械的一致度（§6.6）の「高」境界 |
 | `fitness.domain_match_points` / `fitness.salary_points` / `fitness.condition_points` / `fitness.location_points` | int | 機械的一致度の配点（§6.6） |
-| `fitness.business_form_weak_keywords` | list[str] | 事業形態の曖昧判定（BIZFORM-UNKNOWN）に使う弱キーワード群。省略時は既定値（常駐／コンサルティング／受託／SI）が使われる（C-064） |
+| `fitness.business_form_weak_keywords` | list[str] | 事業形態の曖昧判定（BIZFORM-UNKNOWN）に使う弱キーワード群。省略時は既定値（常駐／コンサルティング／受託／SI）が使われる |
 | `presentation.weekly_limit` | int | 提示上限 N。**初期値 20** |
 | `validity.listing_valid_days` | int | 掲載確認の有効日数 |
 | `collection.request_interval_sec` | int | 情報源へのアクセス間隔（人の通常利用と同程度の低頻度）。未実装: 間隔の執行（待機処理）は未実装で、現行は値を変えても取得間隔は変わらない |
@@ -1008,10 +1004,10 @@ class EvaluationResult:
 | `collection.timeout_sec` | int | 取得タイムアウト。超過時はその情報源をスキップ（リトライしない） |
 | `guard.max_close_ratio` | float | 大量変更ガード: 掲載終了比率の上限。初期値 0.5 |
 | `guard.max_total_change_ratio` | float | 大量変更ガード: 変更合計比率の上限。初期値 1.0 |
-| `openwork.weekly_once_per_company` | bool | 初期値 true（同一会社は週 1 回まで）。未実装（予約）: 第2段階で実装する。false の意味は未定義 |
-| `auto_apply.enabled` | bool | 自動応募の有効化フラグ。**既定値 false**。第1段階では常に false（スキーマのみ確定）。変更は本人の明示指示によってのみ行う |
-| `auto_apply.weekly_limit` | int | 自動応募の週上限。初期値 3（第3段階用にスキーマのみ確定） |
-| `auto_apply.result_unknown_hold_runs` | int | 結果不明時の応募前控え保持上限（次々回実行時まで = 2。第3段階用） |
+| `openwork.weekly_once_per_company` | bool | 初期値 true（同一会社は週 1 回まで）。未実装: false の意味は未定義 |
+| `auto_apply.enabled` | bool | 自動応募の有効化フラグ。**既定値 false**。現行は常に false（スキーマのみ確定）。変更は本人の明示指示によってのみ行う |
+| `auto_apply.weekly_limit` | int | 自動応募の週上限。初期値 3（スキーマのみ確定。自動応募は未実装） |
+| `auto_apply.result_unknown_hold_runs` | int | 結果不明時の応募前控え保持上限（次々回実行時まで = 2。スキーマのみ確定） |
 
 ### 4.3 `local.local.yaml`（接続・実値系。テンプレートは伏せ字のみ）
 
@@ -1024,7 +1020,7 @@ class EvaluationResult:
 | `profile_file` / `judge_file` | path | §4.1／§4.2 への参照 |
 
 設定変更の反映: 設定値を 1 つ変更して再実行すると、コードを変更せずに次回の判定結果へ反映される
-構造とする（完了の定義①）。プロファイルは本人の指示以外では書き換えない。
+構造とする。プロファイルは本人の指示以外では書き換えない。
 
 ## 5. ルール ID 一覧（確定）
 
@@ -1085,9 +1081,9 @@ class EvaluationResult:
 | `OW-BLOCKED` | OpenWork 付与停止 | 403／429・アクセス制限・警告 | レジストリの OpenWork 行を対象外へ戻す材料とし、以後の付与を停止 |
 | `OW-DISABLED` | OpenWork ゲート無効 | レジストリで自動取得可と確定していない | 取得を試行せず全件空欄 |
 | `SRC-BLOCKED` | 情報源フェイルクローズ | レジストリの値検証に失敗した情報源 | 当該情報源の収集・自動応募を行わない |
-| `SRC-REGISTRY-MAJOR` | レジストリ重大変更 | 情報源の追加／自動応募可否の変更／送信確定方法の変更を検出 | その回の自動応募を停止（第1段階では記録のみ） |
+| `SRC-REGISTRY-MAJOR` | レジストリ重大変更 | 情報源の追加／自動応募可否の変更／送信確定方法の変更を検出 | その回の自動応募を停止（現行は記録のみ） |
 
-## 6. 判定仕様の詳細（企画書の手順の設計への写像）
+## 6. 判定仕様の詳細
 
 ### 6.1 主務判定
 §3.5 のとおり。補足: アーキテクト職にも専用経路を作らず同一の主務判定を適用する。
@@ -1101,11 +1097,10 @@ N の枠にも数えない。要確認の件数は理由区分（主務／英語
 ### 6.3 リモート頻度区分（閉じた集合）
 `フルリモート（出社なし）`／`出社週1日以下`／`出社週2〜3日`／`出社週4日以上`／
 `出社必須（フル出社）`／`不明`。この集合以外の値で記録してはならない（型 `RemoteDivision` で担保）。
-現段階ではリモート頻度はハード除外に使わず、提示項目・要確認の材料とする。
-将来、希望頻度が指定された場合は `profile.remote_preference` と設定規則の追加のみで適合条件化する。
+現行はリモート頻度をハード除外に使わず、提示項目・要確認の材料とする。
 
 ### 6.4 勤務地判定
-§3.6 のとおり。勤務地条件は第1段階ではハード除外にせず適合条件として扱う
+§3.6 のとおり。勤務地条件はハード除外にせず適合条件として扱う
 （`profile.location_hard_exclude` で切替可能にしておく）。
 
 ### 6.5 英語必須判定
@@ -1128,9 +1123,9 @@ N の枠にも数えない。要確認の件数は理由区分（主務／英語
 
 ### 6.7 OpenWork 付与
 - 位置づけは補助情報のみ。点数の有無・高低で適合度を変えない。
-- 付与は §3.14 のゲートが有効な場合のみ。第1段階の確定は §9.3 のとおり **ゲート無効（付与しない）**
-  で確定するため、第1段階では全候補の OpenWork 関連 3 列は空欄が正常状態である。
-- 再取得規則（第2段階以降に効く設計として確定）: 再取得成功時は最新値に更新する（状態・差分には
+- 付与は §3.14 のゲートが有効な場合のみ。現行は §9.1 のとおり **ゲート無効（付与しない）**
+  であるため、全候補の OpenWork 関連 3 列は空欄が正常状態である。
+- 再取得規則: 再取得成功時は最新値に更新する（状態・差分には
   含めない）。一度取得できた候補で再取得に失敗した場合は前回の点数・URL を保持し取得日は前回のまま。
 - 突合は正規化会社名＋勤務地・業種等の公開情報の一致が取れた場合のみ。外部へ送るのは会社名のみ。
 
@@ -1187,9 +1182,9 @@ N の枠にも数えない。要確認の件数は理由区分（主務／英語
 
 - `対象外（企業評価の補助情報源）` は OpenWork 行専用の正式な許容値である（空欄による
   フェイルクローズに触れないための扱い）。
-- `対象外（自動応募は第3段階で確定）` を、第1段階の求人情報源（全て自動応募可否＝不可）用の
-  正式な許容値として本設計で登録する。第3段階で自動応募可否を `可` に変更する際は、本列を
-  確定方法 3 値のいずれかに置き換えることを必須とし、その変更はレジストリ重大変更として扱う。
+- `対象外（自動応募は第3段階で確定）` は、求人情報源（全て自動応募可否＝不可）用の
+  正式な許容値である。自動応募可否を `可` に変更する際は、本列を確定方法 3 値の
+  いずれかに置き換えることを必須とし、その変更はレジストリ重大変更として扱う。
 
 ### 8.3 実測結果・リスク評価のセル内構造
 
@@ -1213,7 +1208,7 @@ N の枠にも数えない。要確認の件数は理由区分（主務／英語
 4. URLパターンが重複している行がある（重複行はすべて対象外とする）。
 5. 自動応募可否＝`可` なのに送信確定方法が確定方法 3 値のいずれでもない。
 6. ログイン要否＝`必須` で対象化されているのに、資格情報の有無が `Secure Vault保存済み` でない、
-   または実測結果が `結果=成功` でない（第1段階では §8.5 の行がこれに該当し、全て対象外である）。
+   または実測結果が `結果=成功` でない（§8.5 のログイン必須行は現行この条件に該当し、全て対象外である）。
 7. 費用条件確認が `確認済み（無料または既存契約範囲内）` でない情報源が対象化されている。
 8. 自動取得可否が `不可`／`未確認`、またはリスクが `高`／`未評価` の情報源が対象化されている
    （条件付き可は「対象（手動収集のみ）」の場合に限る）。
@@ -1221,28 +1216,15 @@ N の枠にも数えない。要確認の件数は理由区分（主務／英語
 OpenWork 行の扱い: OpenWork 行が上記の検証に失敗しても全体停止にはせず、点数付与のみを停止する
 （`openwork_gate()` が False を返す）。求人の収集・適合判定は継続する。
 
-### 8.5 ログイン必須の情報源候補（Secure Vault 保存済み 8 件）の扱い ― 設計判断と根拠
+### 8.5 ログイン必須の情報源候補（Secure Vault 保存済み 8 件）の扱い
 
 対象ドメイン（URLパターンとして記録してよい情報のみ。資格情報の実値は含めない）:
 `bizreach.jp`／`en-gage.net`／`offers.jp`／`paiza.jp`／`menta.work`／`mid-works.com`／
 `freelance-hub.jp`／`visasq.com` の 8 件。
 
-**判断: レジストリの対象範囲外とはせず、「分類済み・対象外（実測待ち）」の行としてレジストリに含める。**
+扱い: レジストリの対象範囲外とはせず、「分類済み・対象外（実測待ち）」の行としてレジストリに含める。実測・規約リスク評価等が揃うまでは §8.4 のフェイルクローズにより対象外であり、収集は行わない。個別行の実測状況・評価の現行値はレジストリタブが正であり、下表は行の初期値（共通型）である。
 
-根拠:
-
-- 完了の定義②は、レジストリの各情報源についてログイン要否・資格情報の有無等の項目が
-  「未記入 0 件」で一覧化されていることを求め、⑦(i) は全情報源についてログイン要否と
-  資格情報の有無が分類され「未分類 0 件」であることを求める。既知の候補をレジストリの外に置くと、
-  分類漏れなのか未検討なのかを後から区別できず、この条件と矛盾する。
-- 一方で企画書は、実測確認が未完了のログイン必須サイトについて「レジストリ確定の対象に含めない
-  （対象外として確定させることは可）」と定めている。すなわち「行として存在し、対象外として確定する」
-  形は企画書の許容範囲内であり、第1段階ゲート（ログイン必須サイトの対象化が 0 件の場合は
-  分類とリスク評価の完了をもって通過）とも矛盾しない。
-- 実測（保存済み資格情報での実際のアクセス可否確認）はブラウザ作業を伴い、開発部だけでは完結しない。
-  第2段階の実施結果（2026-11-07）では、候補のうち3件（求人サイト系）は実測成功済みであり、残る確認は規約リスク評価等と整理されている。残り（スカウト系・手動収集系のログイン側）は実測が先に必要であり、8件一律に「未実施」ではない（詳細は引き継ぎ.md「第2段階の実施結果」、§15-2）。
-
-各行の下書き値（8 件共通の型）:
+各行の初期値（8 件共通の型）:
 
 | 列 | 値 |
 |---|---|
@@ -1258,52 +1240,15 @@ OpenWork 行の扱い: OpenWork 行が上記の検証に失敗しても全体停
 | 対象化の最終判断（人手列の初期値案） | `対象外（実測待ち）` |
 | 備考（人手列の初期値案） | 実測と規約確認は本人確認待ちチェックポイント。うち業務委託・フリーランス系の働き方を主とする情報源は、プロファイル（正社員のみ）との関係でも対象化の優先度が低い旨を併記する |
 
-注: 上表は第1段階設計時点の下書き値（8件共通の型）である。第2段階でうち3件は実測成功済みに更新されており、一律「未実施」ではない。
+## 9. OpenWork の扱いとレジストリ行の下書き
 
-解釈上の注意（本人確認事項）: 完了の定義⑦(ii) はログイン必須サイトごとに実測確認欄の記録を求める。
-本設計では「未実施」という状態値そのものを記録とし、未記録（空欄）0 件は満たすが、
-「実測の実施自体がゲート条件」と厳密に読む場合は、8 件の実測完了まで第1段階ゲートは
-未通過という解釈もありうる。この解釈の確定は §15 のチェックポイントとして本人の確認に委ねる。
+### 9.1 OpenWork の扱い
 
-## 9. 情報源の実地調査（2026-11-05）とレジストリ行の下書き
+- **OpenWork の点数付与は行わない**（全候補で OpenWork 関連 3 列は空欄が正常）。
+- レジストリ行は §9.2 のとおり対象外として記録し、`openwork_gate()` は False を返す。
+  変更する場合は、レジストリ行の再確認と本人の判断を経ること。
 
-### 9.1 調査方法
-
-- 各候補について、求人検索ページ／公式ドキュメントページと利用規約ページを実際に取得して読み、
-  到達可否／ログイン要否／利用規約上の自動取得可否／費用条件を確認した。
-- 取得できない候補、規約で判断できない候補は対象外とする（フェイルクローズ）。
-- 取得は読み取りのみ・低頻度で行い、ログイン・登録・応募等の操作は行っていない。
-
-### 9.2 調査結果表
-
-| 候補 | 到達可否 | ログイン要否（求人閲覧） | 利用規約上の自動取得可否 | 費用条件 | 選定 |
-|---|---|---|---|---|---|
-| Green（転職サイト） | 可（求人検索ページをログインなしで取得でき、求人一覧が表示された） | 不要（検索・一覧の閲覧） | 規約全文に自動取得・スクレイピングの明示的な禁止条項は見当たらなかった。一方で「入手した情報を私的利用の範囲を超えて使用する行為」の禁止があり、本利用は本人の求職という私的利用の範囲に限定される。自動取得の可否を規約が明示していない点は残るため、**手動・低頻度のみの条件付き可**とし、cron 化（第2段階）の前に再確認を必須とする | 無料で閲覧可（確認済み） | **選定（条件付き）**: 対象（手動収集のみ） |
-| Greenhouse Job Board API（ATS 公式公開 API） | 可（公式ドキュメントを取得。GET の一覧・詳細エンドポイントが定義されている） | 不要（公式ドキュメント上、認証が必要なのは応募送信エンドポイントのみで、求人取得の GET は認証不要） | 公式に公開された Job Board API であり、企業の公開求人を JSON で取得する用途がドキュメント自体に明記されている。自動取得可 | 無料（API キー不要の範囲） | **選定**: 対象 |
-| Lever Postings API（ATS 公式公開 API） | 可（公式ドキュメント（公開リポジトリ）を取得） | 不要（公開状態の求人は認証なしで取得可能と明記） | 公式ドキュメントに「公開状態の求人は公開されており、第三者に取得されうる」旨が明記されている。自動取得可 | 無料 | **選定**: 対象 |
-| Ashby Job Postings API（ATS 公式公開 API） | 可（公式開発者ドキュメントを取得。公開求人を取得する API として定義されている） | 不要（公開 API としてドキュメント化されている） | 自社採用ページ等に公開求人を載せるための公式公開 API であり、自動取得可。レート等の明示がないため低頻度運用を前提とする | 無料 | **選定**: 対象 |
-| SmartRecruiters Posting API（ATS 公式公開 API） | 可（公式ドキュメントに基づく公開 API の存在と、認証なしで公開求人を取得できることを確認） | 不要（公開求人に限る。内部求人・顧客 API は認証が必要で対象に含めない） | 公式の Posting API として公開求人の取得が定義されている。自動取得可。ただし企業ごとに公開フィードの有効化が異なるため、ボードごとに到達確認を行い、到達できないボードはその回スキップする | 無料（公開求人の範囲） | **選定**: 対象（ボード単位の到達確認つき） |
-| Wantedly | 可（規約・サービスページに到達） | 募集の閲覧自体は一部ログイン不要 | **不可**: 利用規約の禁止事項で、事前の承諾なく自動化されたシステム（ボット、スクレイパー、スパイダー、AI、エージェント型 AI を含む）によるクロール、スクレイピング、データマイニング等を明示的に禁止している（robots.txt の範囲のみ条件付き許可） | 求職者側は無料 | **対象外**（規約明示禁止。高リスク） |
-| Indeed | 可（規約ページに到達） | 求人検索の閲覧はログイン不要 | **不可**: 利用規約で、明示的な書面による許可なく自動化システム（ボット、スクレイパー、スパイダー、AI、エージェント型 AI を含む）によるアクセス、データマイニング、クローリング、スクレイピング、データ抽出等を明示的に禁止している | 求職者側は無料 | **対象外**（規約明示禁止。高リスク） |
-| 企業公開採用ページ（個別企業・ATS 非経由の自社ページ） | 企業ごとに異なる | 企業ごとに異なる | 企業ごとに利用条件が異なり一律に判断できないため、**媒体としての一括対象化はしない**。個別企業のページを対象化する場合は、企業ごとにレジストリへ 1 行追加し、当該企業の利用条件・到達可否を確認してから対象化する（行がない企業の自社ページは収集しない）。ATS 経由の公開求人は上記 4 API の行でカバーする | 企業ごとに確認 | **対象外（一括扱いとしては）**。個別追加の手順のみ設計する |
-| OpenWork（企業評価の補助情報源） | 可（利用規約ページを取得） | 点数等の閲覧範囲は登録なしで到達できる範囲がある一方、全情報の閲覧には登録・有料会員制度がある | **不可**: 利用規約（ユーザーの禁止事項）で「本サービスへ断続的な機械的なアクセス行為、コンテンツを一括ダウンロードする行為又はそれに類する行為」を明示的に禁止している。あわせて、入手した情報の複製・転載等の利用も制限されている | 無料範囲と有料会員（月額制）が併存。有料範囲は使わない | **点数付与は行わない**（§9.3）。求人の収集元ではないため収集自体への影響なし |
-
-補足: 初回の対象情報源は「選定」した 5 件（Green 条件付き＋ATS 公式公開 API 4 件）であり、
-企画書の「初回の対象情報源は 3〜5 件に絞る」の範囲内である。ATS 型の情報源は企業ボード単位で
-求人を取得するため、対象企業のボード識別子の発見手順を §12 に定める。国内の求人媒体の多くが
-規約で自動取得を明示的に禁止しているため、第1段階の収集量は ATS 経由と Green（手動）に
-依存する構造になる。この制約は初回リストの件数見通しに影響するため、§15 にも転記する。
-
-### 9.3 OpenWork の判定（確定）
-
-- 判定: **第1段階では OpenWork の点数付与を行わない**（全候補で OpenWork 関連 3 列は空欄が正常）。
-- 根拠: 利用規約が機械的なアクセス行為を明示的に禁止しているため、「利用規約等で自動取得が
-  制限される場合は点数付与のみを行わない運用とする」という企画書の条件に直接該当する。
-  確認できない場合の扱い（付けない）とも整合する。
-- レジストリ行は §9.4 のとおり対象外として記録し、`openwork_gate()` は False を返す。
-  将来、取得方法の前提が変わる場合は、レジストリ行の再確認と本人の判断を経てのみ変更する。
-
-### 9.4 レジストリ行の下書き（選定分＋OpenWork＋対象外の主要媒体）
+### 9.2 レジストリ行の下書き（選定分＋OpenWork＋対象外の主要媒体）
 
 シート作成時（Executor）は本表をレジストリタブへ転記する。人手列 2 列は「初期値案」であり、
 シート上での記入自体は運用側の記入として扱い、自動プログラムは書き込まない。
@@ -1347,15 +1292,15 @@ URL 列の列幅は生 URL の長さではなく表示テキストの長さを�
 | 11 | 要確認理由 | 理由文＋発火したルール ID。駅名は書かない |
 | 12 | 情報源種別 | `公開求人`／`企業採用ページ`／`ログイン必須（Secure Vault保存済み）`／`補助：届いたスカウト` |
 | 13 | 情報源URL | 表示テキスト付きリンク。表示テキストは `求人ページ` 固定 |
-| 14 | OpenWork点数 | 数値。第1段階は空欄が正常（§9.3） |
-| 15 | OpenWork URL | 表示テキスト付きリンク。表示テキストは `OpenWork` 固定。第1段階は空欄が正常 |
-| 16 | OpenWork点数取得日 | 日付。第1段階は空欄が正常 |
+| 14 | OpenWork点数 | 数値。現行は空欄が正常（§9.1） |
+| 15 | OpenWork URL | 表示テキスト付きリンク。表示テキストは `OpenWork` 固定。現行は空欄が正常 |
+| 16 | OpenWork点数取得日 | 日付。現行は空欄が正常 |
 | 17 | 提示区分 | `提示済み`／`控え` |
 | 18 | 掲載確認日 | 日付 |
 | 19 | 状態 | `新規`／`継続`／`更新あり`／`掲載終了` |
-| 20 | 応募状態 | `未応募`／`送信処理中`／`応募済み`／`応募失敗`／`結果不明`／`手動応募が必要`。第1段階は `未応募` で初期化 |
-| 21 | 応募日時 | 日時。第1段階は空欄 |
-| 22 | 応募結果 | 第1段階は空欄 |
+| 20 | 応募状態 | `未応募`／`送信処理中`／`応募済み`／`応募失敗`／`結果不明`／`手動応募が必要`。`未応募` で初期化（自動応募は未実装） |
+| 21 | 応募日時 | 日時。現行は空欄 |
+| 22 | 応募結果 | 現行は空欄 |
 
 人手列（プログラムは物理的に書き込まない）:
 
@@ -1364,7 +1309,7 @@ URL 列の列幅は生 URL の長さではなく表示テキストの長さを�
 | 23 | 本人の判断 | `応募希望`／`応募検討`／`保留`／`対象外`。`応募希望` は候補ごとの個別承認を意味する。`応募検討` は自動応募の承認ではない |
 | 24 | 本人のメモ | 自由記述 |
 
-初回リストの充足条件（完了の定義②）: 候補全件で、候補ID・会社名・ポジション名・勤務地・
+初回リストの充足条件: 候補全件で、候補ID・会社名・ポジション名・勤務地・
 リモート頻度・情報源URL（リンク形式）・掲載確認日・適合度・適合理由・要確認理由が埋まっていること
 （OpenWork 関連 3 列は空欄を正常とする）。勤務地が読み取れない場合は `不明`、リモート頻度も
 記載がない場合は `不明` で埋めるため、推測なしに空欄 0 件を満たせる。
@@ -1402,7 +1347,7 @@ URL 列の列幅は生 URL の長さではなく表示テキストの長さを�
 |---|---|
 | ID | `SMP-001` 形式の連番 |
 | ファイル名 | `samples/` 内の実ファイル名と一致させる |
-| 種類 | 検証用求人サンプル／モックアップ／その他（値集合はこの 3 値で正式に固定し、配置表の凡例を正本とする。詳細は本節末尾の統合部分） |
+| 種類 | 検証用求人サンプル／モックアップ／その他（値集合はこの 3 値で固定し、配置表の凡例を正本とする。詳細は本節末尾） |
 | 形式 | 拡張子・データ形式（md／json／png 等） |
 | 置き場のパス | リポジトリ相対パス（`storage-spec/samples/...`） |
 | 原本の入手元 | 入手元の種別・公開ページの参照。認証情報付き URL や個人を特定できるパスは書かない |
@@ -1418,14 +1363,13 @@ URL 列の列幅は生 URL の長さではなく表示テキストの長さを�
 - 検証用求人サンプルは、実在の求人本文をそのまま複製せず、判定要素だけを再現した
   匿名化サンプルとして作成する（作成はテスト係。会社名は架空のものを使う）。
 
-#### 配置表「種類」の値集合（旧追補 A10 を統合）
+#### 配置表「種類」の値集合
 
-**確定: 配置表「種類」の値集合は `検証用求人サンプル`／`モックアップ`／`その他` の
-3 値で正式に固定し、現在の 39 行は全行 `検証用求人サンプル` で正とする。**
-テスト係が配置表の凡例に明記した形をそのまま正式仕様とする（差分なし）。
+**配置表「種類」の値集合は `検証用求人サンプル`／`モックアップ`／`その他` の
+3 値で固定し、現在の 39 行は全行 `検証用求人サンプル` とする。**
 
-- 値集合の正本は配置表の凡例とし、本体 §11.1 の表記と一致していることをもって確定とする。
-- 新しい値を追加する場合は、本体 §11.1 の改訂・配置表の凡例・テスト側の許容値集合
+- 値集合の正本は配置表の凡例とし、§11.1 の表記と一致していることをもって確定とする。
+- 新しい値を追加する場合は、§11.1 の改訂・配置表の凡例・テスト側の許容値集合
   （`ALLOWED_KINDS`）の 3 か所を同時に更新することを必須とする（片方だけの追加は
   値検証で不一致として扱う）。
 
@@ -1433,7 +1377,7 @@ URL 列の列幅は生 URL の長さではなく表示テキストの長さを�
 
 ### 11.2 検証用求人サンプルの分類設計（期待結果の対応表）
 
-完了の定義③の内訳に従う。(a)〜(g) は相互に重複カウントせず、それぞれ別サンプルとする。
+(a)〜(g) は相互に重複カウントせず、それぞれ別サンプルとする。
 基本カテゴリ（正社員でない／領域外／SIer・コンサル寄り）も別サンプルとする。
 合計は **39 件**（35 件以上を満たす）。サンプル実体の作成はテスト係の担当であり、
 本表は分類・期待結果・発火すべきルール ID の対応表である。
@@ -1474,35 +1418,27 @@ URL 列の列幅は生 URL の長さではなく表示テキストの長さを�
 | g6 | 数値（TOEIC 等）が単独出現 | ハード除外せず適合度「要確認」 | `ENG-UNKNOWN` |
 | g7 | 必須明記が対象セクション外にのみある | ハード除外せず適合度「要確認」 | `ENG-UNKNOWN`＋`ENG-OUT-SECTION` |
 
-境界サンプル（f1〜f4）の勤務地表記は、架空名＋テスト側フィクスチャ対応表で内／外を決める形を正式な恒常措置とする（詳細は本節末尾の統合部分）。サンプル実体に実在の市区町村名（実対応表の範囲を推測させるもの）は書かない。
+境界サンプル（f1〜f4）の勤務地表記は、架空名＋テスト側フィクスチャ対応表で内／外を決める（詳細は本節末尾）。サンプル実体に実在の市区町村名（実対応表の範囲を推測させるもの）は書かない。
 
-#### (f) サンプルの勤務地表記とテスト側フィクスチャ対応表（旧追補 A9 を統合。本体 §13、§15-1 にも関係）
+#### (f) サンプルの勤務地表記とテスト側フィクスチャ対応表（§13 にも関係）
 
-**確定: テスト係の暫定措置（架空名＋テスト側フィクスチャ対応表で内／外を決める形）を
-正式な恒常措置として承認する。** 本人の実対応表が未確定だった時点の暫定措置として
-妥当であっただけでなく、実対応表が確定した（2026-11-07）後も差し替えない。
+**境界サンプル（f1〜f4）の勤務地は架空名＋テスト側フィクスチャ対応表で内／外を決める。**
 
-根拠と方針:
-
-- サンプル実体に実在の市区町村名（本人の実対応表の範囲を推測させるもの）を書くことは、
-  本体 §11.1／§13 の秘匿原則（範囲の具体値はローカル保持）に反する。架空名
-  （対応表内を表す架空名／対応表外を表す架空名／遠方を表す架空名）はこの原則と整合する。
-- (f) の期待結果は「フィクスチャ対応表に対して内か外か」で定義されており、
-  実対応表の内容には依存しない。したがって実対応表の確定は (f) の期待結果を変えない。
+- サンプル実体に実在の市区町村名（実対応表の範囲を推測させるもの）は書かない
+  （§11.1／§13 の秘匿原則。範囲の具体値はローカル保持）。架空名は対応表内を表す
+  架空名／対応表外を表す架空名／遠方を表す架空名を使う。
+- (f) の期待結果は「フィクスチャ対応表に対して内か外か」で定義し、
+  実対応表の内容には依存しない。
 - テスト側フィクスチャ対応表の正本は `tests/conftest.py` の `location_whitelist_dict`
-  とし、その構造は A2.3 の `LocationWhitelist.from_dict` がそのまま受け取れる形
+  とし、その構造は §3.6 の `LocationWhitelist.from_dict` がそのまま受け取れる形
   （`version`／`municipalities[{prefecture, municipality}]`／`notes`）で固定する。
-
-実対応表確定後の扱い（差し替え方針）:
-
-- **サンプル実体・フィクスチャ対応表・(f) の期待結果は差し替えない**（恒常の検証資産とする）。
-- 実対応表確定時に行うのは次の 2 点のみ: (1) ローカル設定（gitignore 対象）への実値登録、
-  (2) 必要に応じて、実対応表を使った勤務地判定の確認をローカル環境だけで行う
-  （実値を含む検証結果はリポジトリにコミットしない）。
+- サンプル実体・フィクスチャ対応表・(f) の期待結果は、実対応表の値に差し替えない。
+  実対応表を使った勤務地判定の確認はローカル環境だけで行い、実値を含む検証結果は
+  リポジトリにコミットしない。
 - 配置表（storage-spec/配置表.md）の凡例にある「勤務地は架空名を用い、内／外は
-  テスト側フィクスチャで決める」旨の注記は、実対応表確定後もそのまま維持する。
+  テスト側フィクスチャで決める」旨の注記はそのまま維持する。
 
-付随する判定規則の具体化（本体 §3.6 の範囲内）: `judge_location` の照合順序を次で固定する。
+付随する判定規則の具体化（§3.6 の範囲内）: `judge_location` の照合順序を次で固定する。
 
 1. 対応表内の市区町村名が勤務地系セクションの本文に部分文字列として現れる →
    勤務地適合（`LOC-OK`、`matched_municipality` はその市区町村名）
@@ -1512,7 +1448,7 @@ URL 列の列幅は生 URL の長さではなく表示テキストの長さを�
 
 ---
 
-## 12. 初回リスト収集の実行手順（第1段階・手動実行）
+## 12. 初回リスト収集の実行手順（手動実行）
 
 前提確認（着手条件）:
 
@@ -1528,8 +1464,8 @@ URL 列の列幅は生 URL の長さではなく表示テキストの長さを�
    情報源ごとのクエリ／ボード参照を組み立てる。個人情報・現職の具体名はクエリに含めない。
    ATS 型情報源については、公開されている企業ボード（採用ページのリンク等）からボード識別子を確認し、
    `local.ats_boards.*` に登録されたボードのみを取得対象とする（未登録ボードは取得しない）。
-   なお第2段階では海外 ATS 系ソースは収集対象から除外され、ローカル設定の対象ボードは
-   全て空にされている（棚上げとして確定済み。第1段階の設定値はバックアップに保全）。
+   なお現行は海外 ATS 系ソースを収集対象としておらず、ローカル設定の対象ボードは
+   全て空である。
 4. **禁止ワードスキャン**: 組み立てたクエリ・外部入力のすべてに `assert_no_banned_words` を適用する。
    1 件でもヒットしたら、その外部入力の実行を止める（クエリ単位で止め、理由は件数のみ記録する）。
 5. **取得**: `is_collectable` が真の情報源のみから、設定の間隔・上限の範囲で取得する。
@@ -1540,7 +1476,7 @@ URL 列の列幅は生 URL の長さではなく表示テキストの長さを�
    推測で埋めず `None`／「不明」の規則に従う。
 7. **判定**: ハード除外（主務・英語・その他）を先に適用し、該当分は除外ログ行を作る。判定の共通実装は §3.16 の `evaluate.py`（`evaluate_posting`）を使う。
    残りに適合度付けを行い、適合理由・要確認理由にルール ID を併記する。
-8. **OpenWork 付与**: §9.3 の確定により第1段階ではゲート無効のため、取得を試行せず全件空欄とする
+8. **OpenWork 付与**: §9.1 により現行はゲート無効のため、取得を試行せず全件空欄とする
    （`OW-DISABLED` を実行ログの件数集計に残す）。
 9. **ドライラン差分とガード**: 既存行との差分（§3.13）をログに残す。初回は既存 0 件のため
    差分は全件追加になるが、提示・控えの内訳（提示予定／新規控え／控え残と対象 ID）を必ず含める。
@@ -1576,58 +1512,17 @@ notes: "<範囲の考え方を一般化して記す。起点駅名・住所は�
 - 判定はこの対応表だけで完結させる。距離・経路計算や外部 API（経路検索等へ起点を送る方式を含む）は
   使わない。適合理由・要確認理由・ログには対応表の範囲を一般化した表現（「勤務地条件」等）で書き、
   具体的な起点情報は書かない。
-- 初期値の確定手順（第1段階に含まれる作業。実施済み）:
-  1. Architect が「起点から現実的に通勤可能な東京都近辺」という条件に基づく提案範囲
-     （市区町村リスト）を作成する。提案範囲の具体値は本書には含めず、本人の確認用資料として
-     別経路で提示する。
-  2. あわせて境界サンプル案（対応表内／対応表外／判定不能の各ケース）を提示し、
-     §11.2 (f) のサンプル期待結果と突き合わせて確認を取る。
-  3. 本人が確定した範囲だけをローカルの対応表実値として登録する。確定前の提案範囲を
-     実値として先行登録しない。
-- **実施結果: 勤務地対応表は確定値に更新済みである（2026-11-07、ローカル設定のみ。範囲は引き継ぎ.md「第2段階の実施結果」に記録）。上記の手順は確定までの経緯として読む。**
+- 実値の登録手順: 提案範囲（市区町村リスト）は具体値を本書に含めず、本人の確認用資料として
+  別経路で提示する。あわせて境界サンプル案（対応表内／対応表外／判定不能の各ケース）を
+  提示し、§11.2 (f) のサンプル期待結果と突き合わせて確認を取る。本人が確定した範囲だけを
+  ローカルの対応表実値として登録し、確定前の提案範囲を実値として先行登録しない。
 - 対応表の変更は設定データの変更として扱い、コード変更なしで次回判定へ反映される。
 
 ## 14. `docs/引き継ぎ.md` への参照
 
-引き継ぎ資料の実体は `docs/引き継ぎ.md` へ移設済みであり、本節は参照のみとする
+引き継ぎ資料の実体は `docs/引き継ぎ.md` であり、本節は参照のみとする
 （二重管理をしない）。配置表とサンプルの所在、モックアップ／サンプルの更新手順、
 ファイルの差し替え手順、検証状態の見方、設定ファイルの所在は、引き継ぎ.md の
 各見出し（「配置表とサンプルの所在」「モックアップ／サンプルの更新手順」
 「ファイルの差し替え手順」「検証状態の見方」「設定ファイルの置き場」）を参照する。
 
-## 15. 本人確認待ちチェックポイント（第1段階で確定しきれない事項。第2段階で解消・更新された項目を含む）
-
-1. **勤務地対応表と境界サンプル（解消済み）**: 勤務地対応表は確定値に更新済みである
-   （2026-11-07）。§11.2 (f) の勤務地サンプルは、架空名＋テスト側フィクスチャ対応表による
-   恒常措置で確定しており、実対応表の確定後も差し替えない（§11.2 末尾の統合部分）。
-   したがって本項目は保留ではない。
-2. **ログイン必須 8 件の実測**: うち3件（求人サイト系）は第2段階で実測成功済みであり、
-   残る確認は規約リスク評価・自動取得可否・費用条件の確認である。残りの情報源
-   （スカウト系・手動収集系のログイン側）は実測（ブラウザでのログイン確認）が先に必要である。
-   いずれも対象化の判断は、実測・評価が揃ってから行う。
-3. **Green の cron 化可否**: 第1段階では手動・低頻度の条件付き対象とする。規約が自動取得を
-   明示していないため、第2段階で cron 化する場合は、その時点で規約の再確認と本人の判断を前提とする。
-   厳密なフェイルクローズ解釈では第1段階から対象外とする考え方もありうるため、
-   QA・IT 検査で異論が出た場合は本人の判断に上げる。
-4. **初回リストの件数見通し**: 対象媒体が ATS 公式公開 API と Green（手動）に限られるため、
-   国内向けの上流職求人がどの程度集まるかは初回収集まで見通せない。初回結果を見て、
-   情報源の追加（個別企業の採用ページの行追加等）を検討する。
-5. **ATS ボードの扱い**: 海外 ATS 系ソースは第2段階で収集対象から除外され、ローカル設定の
-   `ats_boards` は全て空にされた（棚上げとして確定済み。第1段階の設定値はバックアップに保全）。
-   初期登録の確認待ちという状態ではない。再開する場合は対象ボードの選定から本人の確認を取る
-   （ボード識別子自体は公開情報）。
-
-## 16. 完了の定義との対応（トレース）
-
-| 完了の定義 | 本設計での対応 | 備考 |
-|---|---|---|
-| ① プロファイル・判定設定の変数化 | §3.1、§4、§5 | 設定変更のみで判定へ反映される構造 |
-| ② 初回リスト作成とレジストリ確定 | §8、§9、§10、§12 | ログイン必須の対象化は 0 件。分類と対象外確定をもってゲート通過とする（§8.5） |
-| ③ 除外精度（サンプル 35 件以上） | §11.2（39 件の分類・期待結果対応表） | サンプル実体の作成と実行検証はテスト係・Executor |
-| ④ 週次更新と差分・人手列保護 | §3.11（列ホワイトリスト）、§3.13 | 差分・書込経路は第2段階で修正と実シート往復検証まで実施済み。週次 cron は未作成 |
-| ⑤ 通知の漏洩チェック・クエリ実行前スキャン | §3.3、§12 手順 4・13 | 通知文生成は §3.15 で確定し実装済み。週次通知の運用（cron）は未実施。スキャンは第1段階の収集でも適用 |
-| ⑥ 対外送信ゼロの試運転 | §12（取得は読み取りのみ）、§4 `auto_apply.enabled=false` | 試運転として本番収集の試走1回を実施済み（大量変更ガードで停止し書込なし）。定期的な運用（週次 cron）は未実施 |
-| ⑦ ログイン必須サイトと資格情報 | §8.5 | うち3件は第2段階で実測成功済み。残りは §15-2 のとおり実測が先に必要なものと二分して扱う |
-| ⑧ 自動応募（第3段階） | §8.2 の送信確定方法、§10.1 の応募列、§4 の `auto_apply.*` | スキーマ・値定義のみ第1段階で確定。実装はしない |
-| ⑨ 提示上限・控え／OpenWork／表示テキスト付きリンク | §3.12、§6.6、§6.7、§9.3、§10.1 | OpenWork は「付与しない」で確定 |
-| ⑩ モックアップ／サンプルの配置 | §11.1、§14 | 配置表フォーマットを確定。引き継ぎの実体は引き継ぎ.md へ移設済み（§14 は参照のみ） |
