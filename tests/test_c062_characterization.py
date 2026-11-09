@@ -1,7 +1,7 @@
 """C-062（候補4・小さな重複の散在（束））の特性テスト（現状固定）。
 
 テスト係が実装モジュール本体を見ず、仕様ドキュメント
-（docs/architecture.md／architecture-addendum.md）と既存テストが使う
+（docs/architecture.md）と既存テストが使う
 公開インターフェース、および現行コードの入出力の実測だけから書いた。
 リファクタリング（共通化）で挙動が変わったら検知する網であり、
 現行挙動が「正しい」ことの証明ではない。
@@ -542,14 +542,14 @@ _SAMPLE_TEMPLATE = """分類コード: x
     [
         ("年収 600万円〜800万円", (6_000_000, 8_000_000)),
         ("年収 750万円", (7_500_000, 7_500_000)),
-        # 逆順でも小さい方が min・大きい方が max（追補 A1.1）
+        # 逆順でも小さい方が min・大きい方が max（architecture.md §3.16.1）
         ("年収 800万円〜600万円", (6_000_000, 8_000_000)),
         ("年収 650.5万円〜800万円", (6_505_000, 8_000_000)),
         ("記載なし", (None, None)),
     ],
 )
 def test_parse_sample_salary_man_en_conversion(salary, expected):
-    """サンプル年収の万円→円換算（追補 A1.1 の正規表現仕様どおり）。"""
+    """サンプル年収の万円→円換算（architecture.md §3.16.1 の正規表現仕様どおり）。"""
     parse = impl("job_candidate_list.evaluate.parse_sample_text")
     posting = parse(
         _SAMPLE_TEMPLATE.format(salary=salary), fetched_on=dt.date(2026, 11, 5)
@@ -616,7 +616,7 @@ def test_pipeline_salary_range_text_is_salary_raw_as_is(
 # 7. シート名既定値
 # ---------------------------------------------------------------------------
 def test_local_config_sheet_name_defaults():
-    """LocalConfig のシート名既定値は3タブとも仕様どおり（追補 A2.2・§4.3）。"""
+    """LocalConfig のシート名既定値は3タブとも仕様どおり（architecture.md §3.1・§4.3）。"""
     local_config = impl("job_candidate_list.config.LocalConfig")
     names = local_config.from_dict({}).sheet_names
     assert names.candidates == "候補リスト"
@@ -655,7 +655,7 @@ class _RecordingBackend:
 
 
 def test_gateway_default_tab_names():
-    """GoogleSheetsGateway は sheet_names=None で既定タブ名を使う（追補 A5）。"""
+    """GoogleSheetsGateway は sheet_names=None で既定タブ名を使う（architecture.md §3.11）。"""
     gw = impl("job_candidate_list.sheets_gateway")
     models = impl("job_candidate_list.models")
     backend = _RecordingBackend()
@@ -709,7 +709,7 @@ def test_remote_division_closed_set():
 
 
 def test_remote_rule_rejects_division_outside_closed_set():
-    """RemoteRule.from_dict は集合外の区分を ConfigError にする（追補 A2.2）。"""
+    """RemoteRule.from_dict は集合外の区分を ConfigError にする（architecture.md §3.1）。"""
     remote_rule = impl("job_candidate_list.config.RemoteRule")
     errors = impl("job_candidate_list.errors")
     with pytest.raises(errors.ConfigError):
@@ -736,7 +736,7 @@ def test_remote_rule_rejects_division_outside_closed_set():
 def test_normalize_remote_frequency_current_behavior(
     judge_config_dict, raw, division, rule_id
 ):
-    """正規化結果は常に閉じた6区分のいずれかで、raw_found は一致部分（追補 A11）。"""
+    """正規化結果は常に閉じた6区分のいずれかで、raw_found は一致部分（architecture.md §3.4）。"""
     normalize = impl("job_candidate_list.judge_remote.normalize_remote_frequency")
     remote_config = impl("job_candidate_list.config.RemoteConfig")
     cfg = remote_config.from_dict(judge_config_dict["remote"])
@@ -870,7 +870,7 @@ def test_judge_location_unknown_cases(
     judge_config_dict, location_whitelist_dict, location_text
 ):
     """判定不能ケースはいずれも同一形（勤務地判定不能／LOC-UNKNOWN／
-    matched_municipality=None）で返る（§3.6・追補 A9）。"""
+    matched_municipality=None）で返る（architecture.md §3.6・§11.2）。"""
     posting = _posting_with_location(judge_config_dict, location_text)
     result = _location_result(
         judge_config_dict,
