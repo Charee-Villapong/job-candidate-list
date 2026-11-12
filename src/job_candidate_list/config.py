@@ -349,6 +349,11 @@ class HardConfig:
     non_regular_keywords: tuple[str, ...] = ()
     out_of_domain_keywords: tuple[str, ...] = ()
     business_form_keywords: tuple[str, ...] = ()
+    # 職種名（タイトル）ベースの除外キーワード。タイトルに一致すれば
+    # 対象領域の語の有無にかかわらずハード除外する（judge_hard の
+    # HARD-TITLE）。他のキーワードリストと同様、既定は空で
+    # 実値は設定ファイル側が持つ。
+    title_exclusion_keywords: tuple[str, ...] = ()
     # 対象領域の判定に使うキーワード（従来 judge_hard に直書き。C-064）。
     target_domain_keywords: tuple[str, ...] = DEFAULT_TARGET_DOMAIN_KEYWORDS
     # 事業形態を単独でも明確とみなす強キーワード（同上）。
@@ -366,6 +371,7 @@ class HardConfig:
                 "non_regular_keywords": _as_str_tuple,
                 "out_of_domain_keywords": _as_str_tuple,
                 "business_form_keywords": _as_str_tuple,
+                "title_exclusion_keywords": _as_str_tuple,
                 "target_domain_keywords": _as_str_tuple,
                 "strong_business_form_keywords": _as_str_tuple,
             },

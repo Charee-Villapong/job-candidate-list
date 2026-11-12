@@ -1,4 +1,4 @@
-"""その他ハード除外（雇用形態／領域外／事業形態）（§3.8）。
+"""その他ハード除外（雇用形態／領域外／事業形態／職種名）（§3.8）。
 
 事業形態は公開情報から明確に判断できる場合のみヒットさせる。
 曖昧な場合（キーワードが弱く単独で現れる場合）は本関数では返さず、
@@ -49,6 +49,19 @@ def searchable_text(posting: RawPosting) -> str:
             *posting.sections.values(),
         )
         if part
+    )
+
+
+def matched_title_exclusion_keywords(
+    posting: RawPosting, cfg: HardConfig
+) -> tuple[str, ...]:
+    """職種名に一致したタイトル除外キーワードを返す。
+
+    照合範囲は職種名（position_raw）のみ。業務内容や会社概要に
+    キーワードが現れても発火させない。
+    """
+    return tuple(
+        kw for kw in cfg.title_exclusion_keywords if kw in posting.position_raw
     )
 
 
@@ -110,6 +123,16 @@ def judge_hard_exclusions(posting: RawPosting, cfg: HardConfig) -> list[Exclusio
                 rule_id="HARD-BIZFORM",
                 reason="事業形態が SIer・コンサル寄りと公開情報から明確である",
                 config_ref="hard.business_form_keywords",
+            )
+        )
+    # 職種名: 設定キーワードに一致すれば、対象領域の語の有無に
+    # かかわらず除外する。照合は職種名のみに限定する。
+    if matched_title_exclusion_keywords(posting, cfg):
+        hits.append(
+            ExclusionHit(
+                rule_id="HARD-TITLE",
+                reason="職種名が対象外の職種に一致する",
+                config_ref="hard.title_exclusion_keywords",
             )
         )
     return hits
