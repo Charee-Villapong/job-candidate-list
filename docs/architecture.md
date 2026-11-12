@@ -411,6 +411,9 @@ def judge_hard_exclusions(posting: RawPosting, cfg: HardConfig) -> list[Exclusio
     # 判定する区分:
     #  - 雇用形態が正社員でない（設定 `hard.non_regular_keywords` に一致）→ HARD-EMPTYPE
     #  - 領域外（対象領域キーワードが無く、領域外キーワードに一致）→ HARD-DOMAIN
+    #  - 職種名が設定 `hard.title_exclusion_keywords` に一致 → HARD-TITLE。
+    #    対象領域の語の有無にかかわらず発火し、照合範囲は職種名のみ
+    #   （業務内容・会社概要にキーワードが現れても発火しない）。
     #  - 事業形態が SIer・コンサル寄りと公開情報（company_overview_raw・勤務形態の記述）から
     #    明確に判断できる → HARD-BIZFORM。判断が曖昧な場合はヒットさせず、fitness 側で
     #    BIZFORM-UNKNOWN（要確認）として扱う（本関数では返さない）。
@@ -1066,6 +1069,7 @@ class EvaluationResult:
 | `EMPTYPE-NOT-ALLOWED` | 雇用形態が許可リスト外による要確認 | 雇用形態が明示されているが `profile.employment_allowed` に含まれない | 適合度「要確認」 |
 | `HARD-DOMAIN` | 領域外によるハード除外 | データ／AI 領域から明らかに外れる | 除外ログ行き |
 | `HARD-BIZFORM` | 事業形態によるハード除外 | SIer・コンサル寄りと公開情報から明確に判断できる | 除外ログ行き |
+| `HARD-TITLE` | 職種名によるハード除外 | 職種名が `hard.title_exclusion_keywords` に一致（領域語の有無は不問） | 除外ログ行き |
 | `BIZFORM-UNKNOWN` | 事業形態が判断できない | 曖昧で断定できない | 適合度「要確認」 |
 | `SAL-BELOW` | 年収要確認 | 年収上限が閾値を大幅に下回る | 適合度「要確認」以下に倒す |
 | `SAL-UNKNOWN` | 年収不明 | 公開情報に年収の記載がない | 理由に残す（単独では適合度を決めない） |
