@@ -144,6 +144,56 @@ def test_judge_location_hiragana_city_outside_whitelist_is_unfit(
     assert "LOC-OUT" in list(result.rule_ids)
 
 
+# ---------------------------------------------------------------------------
+# 項目7: 数式インジェクション無害化とリンクのスキーム制限
+# ---------------------------------------------------------------------------
+def test_record_to_row_neutralizes_formula_leading_text():
+    """通常文字列セルの先頭が = + - @ の場合は ' を前置して無害化する。"""
+    gw = impl("job_candidate_list.sheets_gateway")
+    models = impl("job_candidate_list.models")
+    record = models.CandidateRecord(
+        candidate_id="cand_0000000000000001",
+        company="=SUM(A1:A2)",
+        position="+エンジニア",
+        salary_range_text="-100万円",
+        location_text="@東京",
+        source_url=models.LinkCell("求人ページ", "https://example.invalid/j/1"),
+        apply_result="=結果",
+    )
+    row = gw._record_to_row(record)
+    auto = list(gw.AUTO_COLUMNS_CANDIDATE)
+    assert row[auto.index("会社名")] == "'=SUM(A1:A2)"
+    assert row[auto.index("ポジション名")] == "'+エンジニア"
+    assert row[auto.index("想定年収レンジ")] == "'-100万円"
+    assert row[auto.index("勤務地")] == "'@東京"
+    assert row[auto.index("応募結果")] == "'=結果"
+    # リンク列は設計どおり HYPERLINK 数式のまま
+    assert row[auto.index("情報源URL")].startswith('=HYPERLINK("https://')
+
+
+def test_text_cell_leaves_normal_text_untouched():
+    """通常の文字列（先頭が対象記号でない）は変換しない。"""
+    gw = impl("job_candidate_list.sheets_gateway")
+    assert gw._text_cell("株式会社サンプル") == "株式会社サンプル"
+    assert gw._text_cell("") == ""
+    assert gw._text_cell(" =SUM(A1)") == "' =SUM(A1)"
+
+
+def test_hyperlink_allows_only_http_and_https():
+    """_hyperlink は http/https のみ数式化し、それ以外は空にする。"""
+    gw = impl("job_candidate_list.sheets_gateway")
+    models = impl("job_candidate_list.models")
+
+    def link(url):
+        return gw._hyperlink(models.LinkCell("求人ページ", url))
+
+    assert link("https://example.invalid/j/1").startswith("=HYPERLINK(")
+    assert link("http://example.invalid/j/1").startswith("=HYPERLINK(")
+    assert link("javascript:alert(1)") == ""
+    assert link("ftp://example.invalid/j/1") == ""
+    assert link("example.invalid/j/1") == ""
+
+
 def test_applied_at_survives_record_roundtrip():
     """_record_to_row → _row_to_record の往復で応募日時が消えない。"""
     gw = impl("job_candidate_list.sheets_gateway")

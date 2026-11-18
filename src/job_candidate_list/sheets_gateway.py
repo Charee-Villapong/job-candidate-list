@@ -24,6 +24,7 @@ import json
 import re
 import subprocess
 from typing import Mapping, Protocol, Sequence
+from urllib.parse import urlsplit
 
 from .config import SheetNamesConfig
 from .models import (
@@ -153,9 +154,28 @@ def _parse_reasons(text: str) -> tuple[Reason, ...]:
 def _hyperlink(link: LinkCell | None) -> str:
     if link is None or not link.url:
         return ""
+    # リンク列の数式化は設計どおりだが、許可するのは http/https のみ。
+    # それ以外のスキーム（javascript: 等）はリンクにしない。
+    if urlsplit(link.url.strip()).scheme.lower() not in ("http", "https"):
+        return ""
     url = link.url.replace('"', '""')
     display = link.display_text.replace('"', '""')
     return f'=HYPERLINK("{url}", "{display}")'
+
+
+_FORMULA_LEADING_CHARS = ("=", "+", "-", "@")
+
+
+def _text_cell(value: str) -> str:
+    """通常文字列セルを無害化する。
+
+    USER_ENTERED では先頭（空白を除く）が ``=`` ``+`` ``-`` ``@`` の
+    文字列が数式として評価され得るため、該当する場合は ``'`` を前置して
+    文字列として固定する。リンク列（_hyperlink が作る数式）には使わない。
+    """
+    if value and value.lstrip(" \t")[:1] in _FORMULA_LEADING_CHARS:
+        return "'" + value
+    return value
 
 
 def _parse_hyperlink_url(text: str) -> str | None:
@@ -186,17 +206,17 @@ def _parse_hyperlink_url(text: str) -> str | None:
 
 def _record_to_row(record: CandidateRecord) -> list[str]:
     return [
-        record.candidate_id,
-        record.company,
-        record.position,
-        record.employment_type,
-        record.salary_range_text or "",
-        record.location_text,
+        _text_cell(record.candidate_id),
+        _text_cell(record.company),
+        _text_cell(record.position),
+        _text_cell(record.employment_type),
+        _text_cell(record.salary_range_text or ""),
+        _text_cell(record.location_text),
         str(LocationDivision(record.location_result)),
         str(RemoteDivision(record.remote_division)),
         str(record.fitness),
-        _format_reasons(record.fit_reasons),
-        _format_reasons(record.check_reasons),
+        _text_cell(_format_reasons(record.fit_reasons)),
+        _text_cell(_format_reasons(record.check_reasons)),
         _source_type_display(record.source_type),
         _hyperlink(record.source_url),
         "" if record.openwork_score is None else str(record.openwork_score),
@@ -211,7 +231,7 @@ def _record_to_row(record: CandidateRecord) -> list[str]:
         str(record.status),
         str(record.apply_status),
         "" if record.applied_at is None else record.applied_at.isoformat(),
-        record.apply_result or "",
+        _text_cell(record.apply_result or ""),
     ]
 
 
@@ -270,12 +290,12 @@ def _exclusion_to_row(row: ExclusionRow) -> list[str]:
     return [
         row.exclusion_id,
         row.fetched_on.isoformat(),
-        row.company,
-        row.position,
-        row.employment_type or "",
+        _text_cell(row.company),
+        _text_cell(row.position),
+        _text_cell(row.employment_type or ""),
         _source_type_display(row.source_type),
         _hyperlink(row.source_url),
-        row.reason,
+        _text_cell(row.reason),
         ",".join(row.rule_ids),
         ",".join(row.config_refs),
     ]
