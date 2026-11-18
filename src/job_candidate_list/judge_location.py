@@ -26,7 +26,7 @@ __all__ = [
 
 # 市区町村そのものを指す一般語は、市区町村名の抽出対象から除く。
 _GENERIC_PLACE_WORDS = ("市区町村", "市内", "市区", "地区", "町内", "村内")
-_MUNICIPALITY_RE = re.compile(r"[ァ-ヶー一-龥]{2,}?(?:市|区|町|村)")
+_MUNICIPALITY_RE = re.compile(r"[ぁ-んァ-ヶー一-龥]{2,}?(?:市|区|町|村)")
 
 
 @dataclass(frozen=True)

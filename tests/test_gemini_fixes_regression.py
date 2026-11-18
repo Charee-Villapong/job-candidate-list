@@ -99,6 +99,51 @@ def test_read_candidates_restores_applied_at():
     assert records[0].applied_at == dt.datetime(2026, 11, 13, 21, 39)
 
 
+# ---------------------------------------------------------------------------
+# 項目5: ひらがな市区町村名の抽出
+# ---------------------------------------------------------------------------
+def test_extract_municipalities_includes_hiragana_names():
+    """「さいたま市」等のひらがな自治体名を抽出できる。
+
+    抽出は前後の文字を巻き込むヒューリスティクスなので、文中の場合は
+    自治体名で終わるマッチが得られること（修正前は抽出ゼロだった）を
+    確認する。
+    """
+    extract = impl("job_candidate_list.judge_location._extract_municipalities")
+    for name in ("さいたま市", "つくば市", "むつ市", "いわき市"):
+        assert extract(name, set()) == [name]
+        found = extract(f"勤務地は{name}です", set())
+        assert found and found[0].endswith(name)
+
+
+def test_judge_location_hiragana_city_outside_whitelist_is_unfit(
+    judge_config_dict, location_whitelist_dict
+):
+    """対応表外のひらがな市区町村は「判定不能」でなく「不適合」になる。"""
+    from conftest import build_location_whitelist, build_raw_posting
+
+    judge = impl("job_candidate_list.judge_location.judge_location")
+    location_config = impl("job_candidate_list.config.LocationConfig")
+    remote_cls = impl("job_candidate_list.judge_remote.RemoteResult")
+    posting = build_raw_posting(
+        location_raw="さいたま市",
+        sections={
+            "業務内容": "データ活用推進の企画立案を主担当として担います。",
+            "勤務地": "勤務地はさいたま市です。",
+        },
+    )
+    remote = remote_cls(
+        division="出社週2〜3日",
+        rule_ids=["REMOTE-NORMALIZED"],
+        raw_found="出社週2〜3日",
+    )
+    cfg = location_config.from_dict(judge_config_dict["location"])
+    whitelist = build_location_whitelist(location_whitelist_dict)
+    result = judge(posting, remote, whitelist, cfg)
+    assert str(result.division) == "勤務地不適合"
+    assert "LOC-OUT" in list(result.rule_ids)
+
+
 def test_applied_at_survives_record_roundtrip():
     """_record_to_row → _row_to_record の往復で応募日時が消えない。"""
     gw = impl("job_candidate_list.sheets_gateway")
