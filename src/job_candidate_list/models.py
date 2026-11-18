@@ -56,6 +56,23 @@ class CandidateStatus(StrEnum):
     CLOSED = "掲載終了"
 
 
+# 既存運用（bookkeep の終了記録）が使ってきた旧表記。実シートには
+# 既に多数の行がこの値で記録されているため、読み取りでは CLOSED と
+# 等価に扱う（表示は変えず、値の解釈だけを寄せる）。
+_CANDIDATE_STATUS_ALIASES: dict[str, CandidateStatus] = {
+    "終了": CandidateStatus.CLOSED,
+}
+
+
+def _coerce_candidate_status(value):
+    """状態を CandidateStatus へ寄せる（旧表記の別名も受け付ける）。"""
+    if isinstance(value, CandidateStatus):
+        return value
+    if isinstance(value, str) and value in _CANDIDATE_STATUS_ALIASES:
+        return _CANDIDATE_STATUS_ALIASES[value]
+    return CandidateStatus(value)
+
+
 class ApplyStatus(StrEnum):
     NOT_APPLIED = "未応募"
     SENDING = "送信処理中"
@@ -218,7 +235,7 @@ class CandidateRecord:
         object.__setattr__(
             self, "presentation", _coerce(Presentation, self.presentation)
         )
-        object.__setattr__(self, "status", _coerce(CandidateStatus, self.status))
+        object.__setattr__(self, "status", _coerce_candidate_status(self.status))
         object.__setattr__(
             self, "apply_status", _coerce(ApplyStatus, self.apply_status)
         )
