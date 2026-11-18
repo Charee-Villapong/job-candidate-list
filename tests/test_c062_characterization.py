@@ -685,7 +685,9 @@ def test_gateway_default_tab_names():
             )
         ]
     )
-    assert backend.reads == ["候補リスト", "情報源レジストリ"]
+    # upsert は既存行を候補 ID で突き合わせるため候補リストを読み直す
+    # （Gemini レビュー項目1の修正で append 専用から実 upsert へ変更）。
+    assert backend.reads == ["候補リスト", "情報源レジストリ", "候補リスト"]
     assert backend.writes == ["候補リスト", "除外ログ"]
 
 

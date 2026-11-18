@@ -113,6 +113,10 @@ class SheetsBackend(Protocol):
 
     def write_rows(self, tab_name: str, rows: Sequence[Sequence[str]]) -> None: ...
 
+    def update_rows(
+        self, tab_name: str, start_row_index: int, rows: Sequence[Sequence[str]]
+    ) -> None: ...
+
 
 class SheetsGateway(Protocol):
     def read_tab(self, tab_name: str) -> list[list[str]]: ...
@@ -301,6 +305,19 @@ def _exclusion_to_row(row: ExclusionRow) -> list[str]:
     ]
 
 
+def _contiguous_update_blocks(
+    updates: Mapping[int, list[str]],
+) -> list[tuple[int, list[list[str]]]]:
+    """行番号→行 の辞書を、連続する行番号ごとのブロックにまとめる。"""
+    blocks: list[tuple[int, list[list[str]]]] = []
+    for index in sorted(updates):
+        if blocks and index == blocks[-1][0] + len(blocks[-1][1]):
+            blocks[-1][1].append(updates[index])
+        else:
+            blocks.append((index, [updates[index]]))
+    return blocks
+
+
 # ---------------------------------------------------------------------------
 # Gateway（SheetsGateway Protocol の具象実装。変換と backend 委譲の統括）
 # ---------------------------------------------------------------------------
@@ -337,8 +354,37 @@ class GoogleSheetsGateway:
         return records
 
     def upsert_candidates(self, records: Sequence[CandidateRecord]) -> None:
-        rows = [_record_to_row(record) for record in records]
-        self._backend.write_rows(self._sheet_names["candidates"], rows)
+        """候補を候補 ID で突き合わせ、既存行は更新・新規だけ追記する。
+
+        以前は全件を append していたため、再収集のたびに同じ候補 ID の
+        行が重複増殖していた。既存行の位置は変えない（人手列は行単位で
+        対応するため、行の並び替えや重複は人手列との対応を壊す）。
+        """
+        if not records:
+            return
+        tab = self._sheet_names["candidates"]
+        # 同一 ID が複数渡された場合は後のレコードを正とする。
+        unique: dict[str, CandidateRecord] = {}
+        for record in records:
+            unique[record.candidate_id] = record
+        index_by_id: dict[str, int] = {}
+        for index, row in enumerate(self._backend.read_rows(tab)):
+            if index == 0 or not row or not str(row[0]).strip():
+                continue  # ヘッダ行と空行は対象外
+            index_by_id.setdefault(str(row[0]), index)
+        updates: dict[int, list[str]] = {}
+        appends: list[list[str]] = []
+        for record in unique.values():
+            row = _record_to_row(record)
+            index = index_by_id.get(record.candidate_id)
+            if index is None:
+                appends.append(row)
+            else:
+                updates[index] = row
+        for start, block in _contiguous_update_blocks(updates):
+            self._backend.update_rows(tab, start, block)
+        if appends:
+            self._backend.write_rows(tab, appends)
 
     def append_exclusions(self, rows: Sequence[ExclusionRow]) -> None:
         out = [_exclusion_to_row(row) for row in rows]
@@ -363,7 +409,8 @@ class GoogleApiSheetsBackend:
 
     - read_rows: CLI 経路で表示形式の行を返す
     - read_links: CLI 経路で FORMULA 形式からリンクを復元する
-    - write_rows: CLI 経路で書く
+    - write_rows: CLI 経路で末尾へ追記する
+    - update_rows: CLI 経路で既存行を上書きする
     """
 
     CLI_PATH = "/opt/hatch/bin/hatch_gws_cli"
@@ -435,6 +482,31 @@ class GoogleApiSheetsBackend:
         if not rows:
             return
         self._write_rows_via_cli(tab_name, rows)
+
+    def update_rows(
+        self, tab_name: str, start_row_index: int, rows: Sequence[Sequence[str]]
+    ) -> None:
+        if not rows:
+            return
+        # start_row_index はヘッダ行を 0 とする 0 始まりの行番号。
+        # A 列から自動列の幅だけを上書きし、人手列には触らない。
+        params = {
+            "spreadsheetId": self._spreadsheet_id,
+            "range": f"{tab_name}!A{start_row_index + 1}",
+            "valueInputOption": "USER_ENTERED",
+        }
+        body = {"values": [list(row) for row in rows]}
+        self._run_cli(
+            [
+                "spreadsheets",
+                "values",
+                "update",
+                "--params",
+                json.dumps(params, ensure_ascii=False),
+                "--json",
+                json.dumps(body, ensure_ascii=False),
+            ]
+        )
 
     def _write_rows_via_cli(self, tab_name: str, rows: Sequence[Sequence[str]]) -> None:
         # +append にはタブ（範囲）の指定手段がなく先頭タブへ流れるため、

@@ -33,6 +33,30 @@ class _StaticBackend:
         self.updates.append((tab_name, start_row_index, [list(r) for r in rows]))
 
 
+class _SheetBackend:
+    """行リストを保持するフェイク backend（write=追記、update=上書き）。"""
+
+    def __init__(self, rows, links=None):
+        self.rows = [list(r) for r in rows]
+        self._links = links or {}
+
+    def read_rows(self, tab_name):
+        return [list(r) for r in self.rows]
+
+    def read_links(self, tab_name):
+        return dict(self._links)
+
+    def write_rows(self, tab_name, rows):
+        self.rows.extend(list(r) for r in rows)
+
+    def update_rows(self, tab_name, start_row_index, rows):
+        for offset, row in enumerate(rows):
+            index = start_row_index + offset
+            while len(self.rows) <= index:
+                self.rows.append([])
+            self.rows[index] = list(row)
+
+
 def _seeded_gateway(status_text: str, applied_text: str = ""):
     """状態列と応募日時列に指定値を入れた 1 行だけの候補タブを持つ gateway。"""
     gw = impl("job_candidate_list.sheets_gateway")
@@ -48,6 +72,84 @@ def _seeded_gateway(status_text: str, applied_text: str = ""):
     links = {(1, auto.index("情報源URL")): "https://example.invalid/j/1"}
     backend = _StaticBackend([header, row], links)
     return gw.GoogleSheetsGateway(backend), backend
+
+
+# ---------------------------------------------------------------------------
+# 項目1: upsert_candidates の実 upsert 化（重複行の増殖防止）
+# ---------------------------------------------------------------------------
+def _record(candidate_id: str, company: str):
+    models = impl("job_candidate_list.models")
+    return models.CandidateRecord(
+        candidate_id=candidate_id,
+        company=company,
+        position="プロダクトマネージャー",
+        source_url=models.LinkCell("求人ページ", "https://example.invalid/j/1"),
+    )
+
+
+def _sheet_backend_with(records):
+    gw = impl("job_candidate_list.sheets_gateway")
+    header = list(gw.AUTO_COLUMNS_CANDIDATE) + list(gw.MANUAL_COLUMNS_CANDIDATE)
+    rows = [header] + [gw._record_to_row(r) for r in records]
+    return gw.GoogleSheetsGateway(_SheetBackend(rows)), gw
+
+
+def test_upsert_updates_existing_row_in_place_and_appends_new():
+    """既存候補は同じ行で更新され、新規だけが末尾に増える。"""
+    gateway, gw = _sheet_backend_with(
+        [_record("cand_a", "株式会社A"), _record("cand_b", "株式会社B")]
+    )
+    gateway.upsert_candidates(
+        [_record("cand_a", "株式会社A改"), _record("cand_c", "株式会社C")]
+    )
+    rows = gateway._backend.rows
+    assert [r[0] for r in rows[1:]] == ["cand_a", "cand_b", "cand_c"]
+    company_col = list(gw.AUTO_COLUMNS_CANDIDATE).index("会社名")
+    assert rows[1][company_col] == "株式会社A改"
+    assert rows[2][company_col] == "株式会社B"
+
+
+def test_upsert_twice_does_not_duplicate_rows():
+    """同じ内容で再収集しても行が重複増殖しない（修正前の不具合）。"""
+    gateway, _gw = _sheet_backend_with([_record("cand_a", "株式会社A")])
+    records = [_record("cand_a", "株式会社A"), _record("cand_b", "株式会社B")]
+    gateway.upsert_candidates(records)
+    gateway.upsert_candidates(records)
+    rows = gateway._backend.rows
+    assert [r[0] for r in rows[1:]] == ["cand_a", "cand_b"]
+
+
+def test_upsert_via_cli_backend_updates_in_place(monkeypatch):
+    """実 backend（CLI 経路）でも再 upsert が重複行を作らない。
+
+    フェイク CLI は test_sheets_backend_cli のものを再利用する。
+    """
+    import test_sheets_backend_cli as cli_tests
+
+    fake = cli_tests._install_fake(monkeypatch)
+    gw = impl("job_candidate_list.sheets_gateway")
+    backend = gw.GoogleApiSheetsBackend(cli_tests.SPREADSHEET_ID)
+    gateway = gw.GoogleSheetsGateway(backend)
+    record = cli_tests._candidate("cand_0000000000000001")
+    gateway.upsert_candidates([record])
+    gateway.upsert_candidates([record])
+    rows = backend.read_rows(cli_tests.TAB_CANDIDATES)
+    assert len(rows) == 2  # ヘッダ + 1 行のまま
+    assert len(gateway.read_candidates()) == 1
+    flat_args = [arg for call in fake.calls for arg in call]
+    assert "update" in flat_args  # 2 回目は values update で上書きした
+
+
+def test_upsert_duplicate_id_in_one_call_keeps_last():
+    """1 回の呼び出し内に同一 ID があれば後のレコードで 1 行だけ書く。"""
+    gateway, gw = _sheet_backend_with([])
+    gateway.upsert_candidates(
+        [_record("cand_a", "株式会社A"), _record("cand_a", "株式会社A改")]
+    )
+    rows = gateway._backend.rows
+    assert len(rows) == 2
+    company_col = list(gw.AUTO_COLUMNS_CANDIDATE).index("会社名")
+    assert rows[1][company_col] == "株式会社A改"
 
 
 # ---------------------------------------------------------------------------
