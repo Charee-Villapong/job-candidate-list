@@ -13,6 +13,9 @@
 共通オプション:
     --dry-run  書き込まず、実行予定だけを JSON で出力する
 
+接続先（CLI パス・スプレッドシート ID）は tools/bookkeep.local.json
+（.gitignore 対象）から読む。実値はそのファイルにだけ置く。
+
 結果は JSON で標準出力する。読み戻し検証に失敗した場合は終了コード 1。
 """
 
@@ -23,10 +26,25 @@ import json
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-CLI = "/opt/hatch/bin/hatch_gws_cli"
-SPREADSHEET_ID = "19wGlth8THbDMBJCi4ppIVTz0u7dE8L2X0IqnK8ZSoRw"
+# 接続先の実値（CLI パス・スプレッドシート ID）はコードに直書きせず、
+# .gitignore 対象のローカル設定ファイルから読む。
+_LOCAL_CONFIG_PATH = Path(__file__).with_name("bookkeep.local.json")
+
+
+def _load_local_config() -> dict:
+    try:
+        data = json.loads(_LOCAL_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+_LOCAL_CONFIG = _load_local_config()
+CLI = str(_LOCAL_CONFIG.get("cli") or "")
+SPREADSHEET_ID = str(_LOCAL_CONFIG.get("spreadsheet_id") or "")
 TAB = "候補リスト"
 SHEET_ID = 0
 
@@ -60,6 +78,11 @@ class BookkeepError(Exception):
 
 
 def _invoke(argv: list[str], params: dict, payload: dict | None = None) -> dict:
+    if not CLI or not SPREADSHEET_ID:
+        raise BookkeepError(
+            "ローカル設定ファイル（tools/bookkeep.local.json）に "
+            "cli と spreadsheet_id を設定してください"
+        )
     cmd = [CLI, *argv, "--params", json.dumps(params, ensure_ascii=False)]
     if payload is not None:
         cmd += ["--json", json.dumps(payload, ensure_ascii=False)]

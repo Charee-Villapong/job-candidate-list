@@ -299,6 +299,34 @@ def test_gray_verification_fails_when_write_is_dropped(fake_cli):
 
 
 # ---------------------------------------------------------------------------
+# ローカル設定（項目6: 実値の外出し）と状態表記の整合（項目2）
+# ---------------------------------------------------------------------------
+def test_local_config_is_loaded_from_file():
+    """CLI パスとスプレッドシート ID が bookkeep.local.json から読まれる。"""
+    config_path = _BOOKKEEP_PATH.with_name("bookkeep.local.json")
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    assert bookkeep.CLI == data["cli"]
+    assert bookkeep.SPREADSHEET_ID == data["spreadsheet_id"]
+    assert bookkeep.CLI
+    assert bookkeep.SPREADSHEET_ID
+
+
+def test_invoke_without_local_config_raises_bookkeep_error(monkeypatch):
+    """設定が無い状態では CLI を呼ばず BookkeepError で止まる。"""
+    monkeypatch.setattr(bookkeep, "CLI", "")
+    with pytest.raises(bookkeep.BookkeepError):
+        bookkeep.op_gray(70)
+
+
+def test_closed_text_is_accepted_by_candidate_status():
+    """bookkeep が書く終了表記を src 側の CandidateStatus が受理する。"""
+    from job_candidate_list.models import CandidateRecord, CandidateStatus
+
+    record = CandidateRecord(candidate_id="cand_x", status=bookkeep.CLOSED_TEXT)
+    assert record.status is CandidateStatus.CLOSED
+
+
+# ---------------------------------------------------------------------------
 # CLI（main）
 # ---------------------------------------------------------------------------
 def test_main_applied_returns_zero_and_prints_json(fake_cli, capsys):
