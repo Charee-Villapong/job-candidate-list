@@ -75,3 +75,43 @@ def test_read_candidates_accepts_canonical_closed_rows():
     gateway, _backend = _seeded_gateway("掲載終了")
     records = gateway.read_candidates()
     assert records[0].status is models.CandidateStatus.CLOSED
+
+
+# ---------------------------------------------------------------------------
+# 項目3: applied_at（応募日時）の読み戻し
+# ---------------------------------------------------------------------------
+def test_parse_iso_datetime_formats():
+    """ISO 形式とシート上の表記の両方を datetime として読み取れる。"""
+    parse = impl("job_candidate_list.parsing.parse_iso_datetime")
+    expected = dt.datetime(2026, 11, 13, 21, 39)
+    assert parse("2026-11-13T21:39:00") == dt.datetime(2026, 11, 13, 21, 39, 0)
+    assert parse("2026-11-13 21:39") == expected
+    assert parse("2026-11-13 21:39:00") == dt.datetime(2026, 11, 13, 21, 39, 0)
+    assert parse("2026/11/13 21:39") == expected
+    assert parse("") is None
+    assert parse("未応募") is None
+
+
+def test_read_candidates_restores_applied_at():
+    """応募日時のセル（bookkeep の表記）が applied_at に読み戻される。"""
+    gateway, _backend = _seeded_gateway("継続", applied_text="2026-11-13 21:39")
+    records = gateway.read_candidates()
+    assert records[0].applied_at == dt.datetime(2026, 11, 13, 21, 39)
+
+
+def test_applied_at_survives_record_roundtrip():
+    """_record_to_row → _row_to_record の往復で応募日時が消えない。"""
+    gw = impl("job_candidate_list.sheets_gateway")
+    models = impl("job_candidate_list.models")
+    record = models.CandidateRecord(
+        candidate_id="cand_0000000000000001",
+        company="株式会社サンプル青葉",
+        position="プロダクトマネージャー",
+        source_url=models.LinkCell("求人ページ", "https://example.invalid/j/1"),
+        applied_at=dt.datetime(2026, 11, 13, 21, 39, 5),
+    )
+    row = gw._record_to_row(record)
+    auto = list(gw.AUTO_COLUMNS_CANDIDATE)
+    links = {(0, auto.index("情報源URL")): "https://example.invalid/j/1"}
+    restored = gw._row_to_record(row, links, 0)
+    assert restored.applied_at == record.applied_at

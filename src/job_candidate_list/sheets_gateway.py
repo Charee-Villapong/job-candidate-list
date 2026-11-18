@@ -42,7 +42,7 @@ from .models import (
     RemoteDivision,
     SourceType,
 )
-from .parsing import parse_iso_date
+from .parsing import parse_iso_date, parse_iso_datetime
 
 __all__ = [
     "AUTO_COLUMNS_CANDIDATE",
@@ -260,6 +260,7 @@ def _row_to_record(
         confirmed_on=parse_iso_date(cell("掲載確認日")),
         status=cell("状態") or str(CandidateStatus.NEW),
         apply_status=cell("応募状態") or str(ApplyStatus.NOT_APPLIED),
+        applied_at=parse_iso_datetime(cell("応募日時")),
         apply_result=cell("応募結果") or None,
     )
 

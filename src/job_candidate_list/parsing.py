@@ -38,3 +38,34 @@ def parse_iso_date(value: str) -> dt.date | None:
         return dt.date.fromisoformat(value.strip())
     except ValueError:
         return None
+
+
+_DATETIME_FORMATS = (
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y/%m/%d %H:%M",
+    "%Y/%m/%d %H:%M:%S",
+)
+
+
+def parse_iso_datetime(value: str) -> dt.datetime | None:
+    """日時文字列を datetime にする。解釈できなければ None。
+
+    ISO 形式（``isoformat()`` の出力。区切りは ``T`` でも空白でもよい）に
+    加え、シート上で使われる ``YYYY-MM-DD HH:MM`` 形式（スラッシュ区切り
+    を含む）も受け付ける。Sheets の表示整形で区切りや秒の有無が変わっても
+    読み戻せるようにするため。
+    """
+    if not value:
+        return None
+    text = value.strip()
+    try:
+        return dt.datetime.fromisoformat(text)
+    except ValueError:
+        pass
+    for fmt in _DATETIME_FORMATS:
+        try:
+            return dt.datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
