@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 from enum import StrEnum
-from typing import Sequence
+from typing import Collection, Sequence
 
 from .config import GuardConfig
 from .models import CandidateRecord, Fitness, Presentation
@@ -101,11 +101,24 @@ def compute_diff(
     new: Sequence[CandidateRecord],
     old_registry: Registry | None,
     new_registry: Registry | None,
+    *,
+    protected_ids: Collection[str] = (),
 ) -> Diff:
+    """差分を計算する。
+
+    ``protected_ids`` に含まれる既存候補は「掲載終了」に数えない。
+    取得に失敗してスキップした情報源の求人は、消えたのではなく
+    確認できなかっただけなので、終了判定から外すために使う。
+    """
+    protected = set(protected_ids)
     old_by_id = {c.candidate_id: c for c in old}
     new_by_id = {c.candidate_id: c for c in new}
     added = tuple(c.candidate_id for c in new if c.candidate_id not in old_by_id)
-    closed = tuple(c.candidate_id for c in old if c.candidate_id not in new_by_id)
+    closed = tuple(
+        c.candidate_id
+        for c in old
+        if c.candidate_id not in new_by_id and c.candidate_id not in protected
+    )
     updated = tuple(
         c.candidate_id
         for c in new

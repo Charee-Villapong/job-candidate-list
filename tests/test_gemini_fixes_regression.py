@@ -153,6 +153,96 @@ def test_upsert_duplicate_id_in_one_call_keeps_last():
 
 
 # ---------------------------------------------------------------------------
+# 項目4: スキップした情報源の求人を「掲載終了」と誤判定しない
+# ---------------------------------------------------------------------------
+def test_compute_diff_excludes_protected_ids_from_closed():
+    """protected_ids の既存候補は closed / held_closed に入らない。"""
+    from conftest import build_candidate_record
+
+    guard = impl("job_candidate_list.diff_guard")
+    models = impl("job_candidate_list.models")
+    old = [
+        build_candidate_record(
+            "cand_a", presentation=str(models.Presentation.PRESENTED)
+        ),
+        build_candidate_record("cand_b", presentation=str(models.Presentation.HELD)),
+    ]
+    diff = guard.compute_diff(old, [], None, None, protected_ids=("cand_b",))
+    assert diff.closed == ("cand_a",)
+    assert diff.held_closed == ()
+
+
+def test_url_matches_pattern():
+    """URL パターンの ``*`` はワイルドカードとして照合する。"""
+    pipeline = impl("job_candidate_list.pipeline")
+    matches = pipeline._url_matches_pattern
+    assert matches(
+        "https://example.invalid/board-a/j/1", "https://example.invalid/board-a/*"
+    )
+    assert not matches(
+        "https://example.invalid/board-b/j/1", "https://example.invalid/board-a/*"
+    )
+    assert not matches("", "https://example.invalid/board-a/*")
+
+
+class _RaisingAdapter:
+    """fetch が必ず失敗する情報源アダプタ（スキップの再現用）。"""
+
+    def fetch(self, source=None):
+        raise RuntimeError("取得失敗")
+
+
+def test_run_collection_does_not_close_candidates_of_skipped_source(
+    judge_config_dict, profile_config_dict, local_config_dict
+):
+    """取得失敗でスキップした情報源の既存候補は掲載終了にならない。
+
+    一方、正常に取得できた情報源で消えた候補は従来どおり終了する。
+    """
+    from conftest import (
+        REGISTRY_HEADER,
+        FakeSheetsGateway,
+        FakeSourceAdapter,
+        build_app_config,
+        build_candidate_record,
+        registry_rows,
+    )
+
+    models = impl("job_candidate_list.models")
+    run = impl("job_candidate_list.pipeline.run_collection")
+
+    rows_a = registry_rows("サンプル情報源A")
+    row_b = list(rows_a[1])
+    row_b[0] = "情報源B"
+    row_b[1] = "https://example.invalid/board-b/*"
+    two_source_rows = [list(REGISTRY_HEADER), rows_a[1], row_b]
+
+    rec_a = build_candidate_record(
+        "cand_from_a",
+        source_url=models.LinkCell("求人ページ", "https://example.invalid/board-a/j/1"),
+    )
+    rec_b = build_candidate_record(
+        "cand_from_b",
+        source_url=models.LinkCell("求人ページ", "https://example.invalid/board-b/j/1"),
+    )
+    cfg = build_app_config(profile_config_dict, judge_config_dict, local_config_dict)
+    gateway = FakeSheetsGateway(
+        candidates=[rec_a, rec_b], registry_rows=two_source_rows
+    )
+    adapters = {
+        "サンプル情報源A": FakeSourceAdapter([]),
+        "情報源B": _RaisingAdapter(),
+    }
+    summary = run(cfg, gateway, adapters, None, False)
+
+    assert summary.skipped_source_names == ("情報源B",)
+    assert summary.closed_ids == ("cand_from_a",)
+    upserted = {r.candidate_id: r for r in gateway.upserted}
+    assert str(upserted["cand_from_a"].status) == "掲載終了"
+    assert "cand_from_b" not in upserted
+
+
+# ---------------------------------------------------------------------------
 # 項目2: bookkeep の「終了」と CandidateStatus の不整合
 # ---------------------------------------------------------------------------
 def test_status_alias_closed_text_from_bookkeep():

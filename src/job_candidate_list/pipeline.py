@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import re
 from dataclasses import dataclass, replace
 from typing import Mapping, Sequence
 
@@ -196,6 +197,37 @@ def _collect_postings(
             seen_keys.add(dedupe_key)
             postings.append(posting)
     return postings, source_names, tuple(skipped)
+
+
+def _url_matches_pattern(url: str, pattern: str) -> bool:
+    """レジストリの URL パターン（``*`` がワイルドカード）に一致するか。"""
+    if not url or not pattern:
+        return False
+    regex = re.escape(pattern).replace(r"\*", ".*")
+    return re.fullmatch(regex, url) is not None
+
+
+def _protected_ids_for_skipped_sources(
+    existing: Sequence[CandidateRecord],
+    registry: Registry,
+    skipped_source_names: Sequence[str],
+) -> tuple[str, ...]:
+    """スキップした情報源に属する既存候補の ID（終了判定から外す対象）。
+
+    候補と情報源の対応は、候補の情報源 URL とレジストリの
+    URL パターンの照合で判定する。
+    """
+    if not skipped_source_names:
+        return ()
+    skipped = set(skipped_source_names)
+    patterns = [s.url_pattern for s in registry.sources if s.source_id in skipped]
+    if not patterns:
+        return ()
+    return tuple(
+        c.candidate_id
+        for c in existing
+        if any(_url_matches_pattern(c.source_url.url, p) for p in patterns)
+    )
 
 
 def _index_existing(
@@ -474,7 +506,10 @@ def run_collection(
     # 提示・控えの振り分け（手順10）を差分計算の前に行い、提示予定を差分へ含める。
     current = _apply_presentation(current, cfg.presentation.weekly_limit)
 
-    diff = compute_diff(existing, current, None, registry)
+    protected_ids = _protected_ids_for_skipped_sources(
+        existing, registry, skipped_source_names
+    )
+    diff = compute_diff(existing, current, None, registry, protected_ids=protected_ids)
     guard = mass_change_guard(diff, len(existing), cfg.guard)
     stopped = guard.status == GuardStatus.STOP
 
