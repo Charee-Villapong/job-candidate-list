@@ -1,0 +1,81 @@
+{
+  "columns": {
+    "candidates": {
+      "applied_at": "U",
+      "apply_status": "T",
+      "company": "B",
+      "first": "A",
+      "last": "X",
+      "position": "C",
+      "result": "V",
+      "status": "S"
+    },
+    "list": {
+      "applied_date": "B",
+      "company": "A",
+      "result": "C"
+    },
+    "results": {
+      "applied_date": "C",
+      "company": "A",
+      "result": "D",
+      "role": "B"
+    }
+  },
+  "gray": {
+    "blue": 0.85,
+    "green": 0.85,
+    "red": 0.85
+  },
+  "gray_tolerance": 0.01,
+  "headers": {
+    "candidates": {
+      "applied_at": "応募日時",
+      "apply_status": "応募状態",
+      "company": "会社名",
+      "position": "ポジション名",
+      "status": "状態"
+    },
+    "list": {
+      "applied_date": "応募日",
+      "company": "会社名",
+      "result": "結果"
+    },
+    "results": {
+      "applied_date": "応募日",
+      "company": "会社名",
+      "result": "選考結果",
+      "role": "職種"
+    }
+  },
+  "known_results": [
+    "選考中",
+    "書類選考中",
+    "書類選考で不合格",
+    "書類選考通過",
+    "面接中",
+    "内定",
+    "辞退",
+    "不採用",
+    "募集終了",
+    "選考終了",
+    "内定辞退"
+  ],
+  "rules": {
+    "normalize_width": true,
+    "remove_corporate_forms": [
+      "株式会社",
+      "（株）",
+      "(株)",
+      "有限会社",
+      "（有）",
+      "(有)"
+    ],
+    "remove_whitespace": true
+  },
+  "tabs": {
+    "candidates": "候補リスト",
+    "list": "応募済み企業一覧",
+    "results": "選考結果"
+  }
+}
